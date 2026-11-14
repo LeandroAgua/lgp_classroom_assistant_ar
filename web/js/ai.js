@@ -62,7 +62,12 @@ async function chamar(modelo, corpo, chave) {
   return { ok: false, estado: r.status, texto: t.slice(0, 200) };
 }
 
-async function pedir(prompt, { json = true, maxTokens = 2048, temperatura = 0.2 } = {}) {
+/* Orçamento total de espera. Sem isto, cinco modelos × três tentativas com
+   recuo davam mais de meio minuto de ecrã parado antes de desistir — e do
+   lado de quem usa, "a pensar muito" e "pendurado" são indistinguíveis. */
+const ORCAMENTO_MS = 40000;
+
+async function pedir(prompt, { json = true, maxTokens = 2048, temperatura = 0.2, onProgresso } = {}) {
   const cfg = store.config();
   const chave = (cfg.geminiKey || "").trim();
   if (!chave) throw new Error("sem-chave");
@@ -81,9 +86,17 @@ async function pedir(prompt, { json = true, maxTokens = 2048, temperatura = 0.2 
   const candidatos = [escolhido, ...ALTERNATIVAS.filter(m => m !== escolhido)];
 
   let ultimoErro = null;
+  const inicio = performance.now();
+  const decorrido = () => performance.now() - inicio;
 
   for (const modelo of candidatos) {
-    for (let tentativa = 0; tentativa < 3; tentativa++) {
+    if (decorrido() > ORCAMENTO_MS) break;
+
+    for (let tentativa = 0; tentativa < 2; tentativa++) {
+      onProgresso && onProgresso({
+        modelo, tentativa: tentativa + 1,
+        segundos: Math.round(decorrido() / 1000)
+      });
       const r = await chamar(modelo, corpo, chave);
 
       if (r.ok) {
@@ -113,7 +126,8 @@ async function pedir(prompt, { json = true, maxTokens = 2048, temperatura = 0.2 
 
       // Recuo exponencial com um pouco de aleatoriedade, para que vários
       // pedidos em curso não voltem todos ao mesmo tempo.
-      await espera((700 * Math.pow(2, tentativa)) + Math.random() * 400);
+      if (decorrido() > ORCAMENTO_MS) break;
+      await espera((600 * Math.pow(2, tentativa)) + Math.random() * 300);
     }
   }
 
@@ -152,7 +166,7 @@ ${recorte}
  * permite mostrar no relatório COMO o glossário é gerado, em vez de afirmar
  * que é gerado. E quando a extração falha, é por aqui que se vê porquê.
  */
-export async function gerarGlossario(textoMaterial, { nomeFicheiro = "" } = {}) {
+export async function gerarGlossario(textoMaterial, { nomeFicheiro = "", onProgresso } = {}) {
   const recorte = (textoMaterial || "").slice(0, 60000);
   const t0 = performance.now();
 
@@ -176,7 +190,7 @@ export async function gerarGlossario(textoMaterial, { nomeFicheiro = "" } = {}) 
   }
 
   const prompt = montarPromptGlossario(recorte, nomeFicheiro);
-  const d = await pedir(prompt, { maxTokens: 4096 });
+  const d = await pedir(prompt, { maxTokens: 4096, onProgresso });
 
   const termos = (d.termos || []).filter(t => t && t.termo).map(t => {
     const termo = String(t.termo).trim();

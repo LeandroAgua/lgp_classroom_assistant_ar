@@ -15,7 +15,7 @@ import { AMOSTRAS, amostra } from "./amostras.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-14.4";
+export const VERSAO = "2026-11-14.5";
 
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -177,9 +177,34 @@ async function criarAula({ uc, titulo, docente, texto, nome }) {
 /** Gera o glossário e guarda-o com o diagnóstico, para que a extração possa
  *  ser inspecionada depois. Partilhado entre criar aula e submeter material. */
 async function gerarEGuardar(aula, texto, nome, caixa) {
-  if (caixa) caixa.innerHTML = `<div class="notice info"><strong>A gerar o glossário</strong>${IA.temChave() ? "A IAG está a identificar a terminologia da disciplina…" : "Sem chave da IAG: a usar a heurística local."}</div>`;
+  // Mostrar o que está a acontecer, segundo a segundo. Um ecrã parado durante
+  // vinte segundos é indistinguível de um ecrã pendurado, e extrair 40 termos
+  // de um material inteiro demora mesmo.
+  let relogio = null;
+  const pintar = (linha) => {
+    if (!caixa) return;
+    caixa.innerHTML = `<div class="notice info"><strong>A gerar o glossário</strong>${linha}</div>`;
+  };
+
+  if (IA.temChave()) {
+    const t0 = Date.now();
+    let detalhe = "a contactar a IAG…";
+    pintar(detalhe);
+    relogio = setInterval(() => pintar(`${detalhe} · ${Math.round((Date.now() - t0) / 1000)}s`), 1000);
+    var onProgresso = ({ modelo, tentativa }) => {
+      detalhe = tentativa > 1
+        ? `${modelo} não respondeu — tentativa ${tentativa}`
+        : `${modelo} a identificar a terminologia…`;
+    };
+  } else {
+    pintar("Sem chave da IAG: a usar a heurística local.");
+  }
+
+  const parar = () => { if (relogio) clearInterval(relogio); };
+
   try {
-    const r = await IA.gerarGlossario(texto, { nomeFicheiro: nome });
+    const r = await IA.gerarGlossario(texto, { nomeFicheiro: nome, onProgresso });
+    parar();
     if (!r.termos.length) {
       if (caixa) caixa.innerHTML = `<div class="notice warn"><strong>Glossário vazio</strong>Não foi identificada terminologia da disciplina neste material.</div>`;
       return false;
@@ -190,6 +215,7 @@ async function gerarEGuardar(aula, texto, nome, caixa) {
     location.hash = `#/extracao/${aula.id}`;
     return true;
   } catch (e) {
+    parar();
     if (caixa) caixa.innerHTML = `<div class="notice danger"><strong>A extração falhou</strong>${escapar(e.message)}</div>`;
     return false;
   }
