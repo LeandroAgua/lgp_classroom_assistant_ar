@@ -11,11 +11,12 @@ import { falar, parar as pararFala, ttsDisponivel } from "./tts.js";
 import * as IA from "./ai.js";
 import { criarCamara } from "./camera.js";
 import { AMOSTRAS, amostra } from "./amostras.js";
+import * as LGP from "./lgp.js";
 
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-14.5";
+export const VERSAO = "2026-11-14.6";
 
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -700,40 +701,116 @@ function abrirPergunta(s) {
   const fechar = () => { if (camara) camara.parar(); back.remove(); };
   back.onclick = e => { if (e.target === back) fechar(); };
 
-  /* E06 — enquadramento. A app diz com todas as letras que não reconhece
-     o gesto: prometer reconhecimento e entregar adivinhação era pior. */
+  /* E06 — enquadramento e, se houver gestos gravados, reconhecimento.
+     Sem gestos gravados a app não finge: diz que não reconhece e manda
+     escrever. Com gestos gravados reconhece só esses, e di-lo também. */
   function passoCamara() {
+    const st = LGP.estatisticas();
+    const reconhece = st.classes > 0;
+    const sequencia = [];
+
     passo.innerHTML = `
       <h3>Faz a tua pergunta em LGP</h3>
-      <div class="notice warn" style="margin:10px 0 12px">
-        A câmara não reconhece LGP. Escreve a pergunta antes de a dizer em voz alta.
-      </div>
+      ${reconhece ? `
+        <div class="notice info" style="margin:10px 0 12px">
+          <strong>Reconhece ${st.classes} gesto${st.classes > 1 ? "s" : ""} que gravaste</strong>
+          Tudo o resto não é reconhecido. Podes escrever a qualquer momento.
+        </div>` : `
+        <div class="notice warn" style="margin:10px 0 12px">
+          A câmara não reconhece LGP. Escreve a pergunta antes de a dizer em voz alta.
+        </div>`}
+
       <div class="camera-wrap">
         <video id="cam" autoplay playsinline muted></video>
+        ${reconhece ? `<canvas id="pontos"></canvas><div class="gesto-chip" id="chip" hidden>—</div>` : ""}
         <div class="camera-hint" id="hint">A pedir acesso à câmara…</div>
       </div>
+
+      ${reconhece ? `
+        <div style="margin-top:12px">
+          <div class="row between" style="margin-bottom:6px">
+            <b class="small">Gestos reconhecidos</b>
+            <button class="btn ghost sm" id="btnLimpar" style="padding:2px 0">limpar</button>
+          </div>
+          <div class="glosas" id="glosas"><span class="muted small">Faz um gesto e mantém a mão parada.</span></div>
+        </div>` : ""}
+
       <p class="muted small" style="margin-top:10px">A imagem fica no teu dispositivo e não é gravada.</p>
-      <button class="btn" id="btnEscrever" style="margin-top:6px">Escrever a pergunta</button>
+      <button class="btn" id="btnEscrever" style="margin-top:6px">${reconhece ? "Continuar e escrever" : "Escrever a pergunta"}</button>
+      ${reconhece ? "" : `<button class="btn ghost" id="btnGravar">Gravar gestos primeiro</button>`}
       <button class="btn ghost" id="btnCancelar">Cancelar</button>`;
 
-    camara = criarCamara({
-      video: $("#cam", back),
-      onErro: () => {
-        const h = $("#hint", back);
-        if (h) h.textContent = "Não foi possível abrir a câmara. Verifica as permissões ou escreve a pergunta.";
-      }
-    });
-    camara.iniciar().then(ok => { const h = $("#hint", back); if (ok && h) h.textContent = "Enquadra-te dentro do rectângulo."; });
+    function pintarSequencia() {
+      const el = $("#glosas", back);
+      if (!el) return;
+      el.innerHTML = sequencia.length
+        ? sequencia.map(g => `<span class="glosa">${escapar(g)}</span>`).join("")
+        : `<span class="muted small">Faz um gesto e mantém a mão parada.</span>`;
+    }
 
-    $("#btnEscrever", back).onclick = () => { camara.parar(); passoEscrever(); };
+    if (reconhece) {
+      // Suavizador: só aceita um gesto quando dez frames seguidos concordam.
+      // Serve de confirmação e, de caminho, de segmentação — enquanto a mão
+      // se move entre gestos a janela fica dividida e nada é emitido.
+      const suave = LGP.criarSuavizador({ janela: 10, limiar: 0.6 });
+
+      camara = LGP.criarCaptura({
+        video: $("#cam", back),
+        canvas: $("#pontos", back),
+        onResultado: (r) => {
+          const chip = $("#chip", back);
+          if (!chip) return;
+          const s = suave.empurrar(r ? r.previsao : null);
+          if (!r) { chip.hidden = true; return; }
+          chip.hidden = false;
+          chip.textContent = s.etiqueta
+            ? `${s.etiqueta} · ${Math.round(s.confianca * 100)}%`
+            : "mão detetada";
+          if (s.pronto && s.novo) {
+            sequencia.push(s.etiqueta);
+            suave.confirmar(s.etiqueta);
+            pintarSequencia();
+          }
+        },
+        onErro: (e) => {
+          const h = $("#hint", back);
+          if (h) h.textContent = e.message === "camara-recusada"
+            ? "A câmara foi recusada. Podes escrever a pergunta."
+            : "Não foi possível abrir a câmara. Escreve a pergunta.";
+        }
+      });
+      $("#btnLimpar", back).onclick = () => { sequencia.length = 0; suave.limpar(); pintarSequencia(); };
+    } else {
+      camara = criarCamara({
+        video: $("#cam", back),
+        onErro: () => {
+          const h = $("#hint", back);
+          if (h) h.textContent = "Não foi possível abrir a câmara. Verifica as permissões ou escreve a pergunta.";
+        }
+      });
+      $("#btnGravar", back).onclick = () => { camara.parar(); fechar(); location.hash = "#/gestos"; };
+    }
+
+    camara.iniciar().then(ok => {
+      const h = $("#hint", back);
+      if (ok && h) h.textContent = reconhece ? "Mantém o gesto parado até ser aceite." : "Enquadra-te dentro do rectângulo.";
+    });
+
+    $("#btnEscrever", back).onclick = () => { camara.parar(); passoEscrever(sequencia); };
     $("#btnCancelar", back).onclick = fechar;
   }
 
   /* E07 — confirmar e dizer */
-  function passoEscrever() {
+  function passoEscrever(sequencia = []) {
     const vol = store.config().volume ?? 1;
     passo.innerHTML = `
       <h3>Escrever a pergunta</h3>
+      ${sequencia.length ? `
+        <div style="margin-top:10px">
+          <div class="small muted" style="margin-bottom:6px">gestos reconhecidos</div>
+          <div class="glosas">${sequencia.map(g => `<span class="glosa">${escapar(g)}</span>`).join("")}</div>
+          <div class="muted small" style="margin-top:8px">Os gestos são uma pista, não uma tradução. Escreve a pergunta em português.</div>
+        </div>` : ""}
       <textarea id="txtPergunta" class="pergunta-box" style="margin-top:12px" placeholder="Escreve aqui a tua pergunta…" aria-label="Pergunta"></textarea>
       <div class="notice warn" style="margin:14px 0 12px">
         Isto vai ser dito em voz alta na sala. Confirma antes de enviar.
@@ -917,6 +994,112 @@ function ecraHistorico() {
   $$("[data-sessao]").forEach(b => b.onclick = () => location.hash = `#/resumo/${b.dataset.sessao}`);
 }
 
+/* ───────────────── recolha de gestos ───────────────── */
+
+function ecraGestos() {
+  marcarTab("aulas");
+  topo({ kicker: "LGP", titulo: "Gravar gestos", voltar: () => history.back() });
+
+  render(`
+    <div class="screen">
+      <div class="notice warn">
+        <strong>A app não sabe LGP — aprende o que lhe mostrares</strong>
+        Grava cada gesto sob a etiqueta que quiseres. Aprende o gesto correto antes de gravar, senão ensinas-lhe um erro e ela fica confiante nele.
+      </div>
+
+      <div class="camera-wrap" style="aspect-ratio:1/1">
+        <video id="cam" autoplay playsinline muted></video>
+        <canvas id="pontos"></canvas>
+        <div class="gesto-chip" id="chip" hidden>—</div>
+        <div class="camera-hint" id="hint">A pedir acesso à câmara…</div>
+      </div>
+
+      <div class="field">
+        <label for="etiqueta">Etiqueta do gesto</label>
+        <input id="etiqueta" placeholder="SIM, OBRIGADO, REPETIR…" autocomplete="off">
+        <div class="chips" style="margin-top:8px">
+          ${LGP.VOCABULARIO_SUGERIDO.map(v => `<button class="chip plain" data-sug="${escapar(v)}">${escapar(v)}</button>`).join("")}
+        </div>
+      </div>
+      <button class="btn" id="btnGravar" disabled>Gravar 20 amostras</button>
+
+      <div class="card" id="statsCard"></div>
+
+      <div class="notice info">
+        <strong>Duas limitações a saber</strong>
+        Isto distingue <b>formas de mão</b>, não movimento: gestos que dependem de trajetória não funcionam. E um classificador gravado por uma só pessoa aprende essa pessoa — para números defensáveis, gravem os dois, e de preferência com alguém da comunidade surda.
+      </div>
+    </div>`);
+
+  function pintarStats() {
+    const st = LGP.estatisticas();
+    $("#statsCard").innerHTML = `
+      <div class="row between" style="margin-bottom:10px">
+        <b>Gestos gravados</b>
+        ${st.classes ? `<span class="muted small">${st.classes} classes · ${st.total} amostras</span>` : ""}
+      </div>
+      ${st.classes ? `
+        <div class="chips">${st.etiquetas.map(([e, n]) =>
+          `<span class="chip">${escapar(e)} · ${n}<button class="x" data-apagar="${escapar(e)}" aria-label="Apagar ${escapar(e)}">×</button></span>`).join("")}</div>
+        <div class="muted small" style="margin-top:10px">
+          Exatidão esperada com ${st.classes} classe${st.classes > 1 ? "s" : ""}: <b>${st.exatidaoEsperada}</b>.
+          A curva da literatura: ~94% a 20 gestos, ~46% a 292.
+        </div>`
+        : `<span class="muted small">Ainda não há gestos gravados.</span>`}`;
+
+    $$("[data-apagar]").forEach(b => b.onclick = (ev) => {
+      ev.stopPropagation();
+      LGP.removerEtiqueta(b.dataset.apagar);
+      pintarStats();
+      toast(b.dataset.apagar + " apagado.");
+    });
+  }
+  pintarStats();
+
+  let vec = null;
+  const captura = LGP.criarCaptura({
+    video: $("#cam"), canvas: $("#pontos"),
+    onResultado: (r) => {
+      const chip = $("#chip");
+      if (!chip) return;
+      vec = r ? r.vec : null;
+      chip.hidden = !r;
+      if (r) chip.textContent = r.previsao
+        ? `${r.previsao.etiqueta} · ${Math.round(r.previsao.confianca * 100)}%`
+        : "mão detetada";
+      const b = $("#btnGravar");
+      if (b) b.disabled = !vec || !$("#etiqueta").value.trim();
+    },
+    onErro: (e) => { const h = $("#hint"); if (h) h.textContent = "Câmara indisponível: " + e.message; }
+  });
+  captura.iniciar().then(ok => { const h = $("#hint"); if (ok && h) h.textContent = "Mantém o gesto parado enquanto grava."; });
+
+  $("#etiqueta").oninput = () => { $("#btnGravar").disabled = !vec || !$("#etiqueta").value.trim(); };
+  $$("[data-sug]").forEach(b => b.onclick = () => {
+    $("#etiqueta").value = b.dataset.sug;
+    $("#btnGravar").disabled = !vec;
+  });
+
+  $("#btnGravar").onclick = async () => {
+    const etq = $("#etiqueta").value.trim().toUpperCase();
+    if (!etq) return;
+    const b = $("#btnGravar");
+    b.disabled = true;
+    let gravadas = 0;
+    for (let i = 0; i < 20; i++) {
+      if (vec) { LGP.adicionarAmostra(etq, vec); gravadas++; }
+      b.textContent = `A gravar… ${i + 1}/20`;
+      await new Promise(r => setTimeout(r, 110));
+    }
+    b.textContent = "Gravar 20 amostras";
+    b.disabled = false;
+    pintarStats();
+    toast(gravadas ? `${etq}: ${gravadas} amostras.` : "Nenhuma mão detetada — tenta outra vez.");
+  };
+
+  limpezaEcra = () => captura.parar();
+}
+
 /* ───────────────── definições ───────────────── */
 
 function ecraConfig() {
@@ -956,6 +1139,8 @@ function ecraConfig() {
         <strong>A chave fica neste dispositivo</strong>
         Numa versão de produção as chamadas passariam por um servidor próprio — é lá que entraria também o vocabulário personalizado do reconhecimento de fala, que a Web Speech API não suporta.
       </div>
+
+      <a class="btn sec" href="#/gestos">Gravar gestos de LGP</a>
 
       <button class="btn ghost" id="apagar">Apagar todos os dados locais</button>
 
@@ -1085,6 +1270,7 @@ const rotas = [
   [/^#\/resumo\/(.+)$/,     m => ecraResumo(m[1])],
   [/^#\/revisao\/(.+)$/,    m => ecraRevisao(m[1])],
   [/^#\/historico$/,        () => ecraHistorico()],
+  [/^#\/gestos$/,           () => ecraGestos()],
   [/^#\/config$/,           () => ecraConfig()]
 ];
 
