@@ -739,8 +739,14 @@ function ecraConfig() {
       </div>
       <div class="field">
         <label for="modelo">Modelo</label>
-        <input id="modelo" value="${escapar(c.modelo)}" placeholder="gemini-flash-latest" autocomplete="off">
+        <div class="row" style="gap:8px">
+          <input id="modelo" class="grow" value="${escapar(c.modelo)}" placeholder="gemini-flash-latest" autocomplete="off" list="listaModelos">
+          <datalist id="listaModelos"></datalist>
+          <button class="btn sec sm" id="procurar" style="flex:0 0 auto">Procurar</button>
+        </div>
+        <span class="muted small">«Procurar» pergunta à API que modelos a tua chave consegue chamar.</span>
       </div>
+      <div id="modelos"></div>
 
       <div class="row" style="gap:10px">
         <button class="btn" id="guardar">Guardar</button>
@@ -759,6 +765,34 @@ function ecraConfig() {
   $("#guardar").onclick = () => {
     store.guardarConfig({ geminiKey: $("#key").value.trim(), modelo: $("#modelo").value.trim() || "gemini-flash-latest" });
     toast("Guardado.");
+  };
+
+  $("#procurar").onclick = async () => {
+    const chave = $("#key").value.trim();
+    if (!chave) return toast("Põe a chave primeiro.");
+    store.guardarConfig({ geminiKey: chave });
+    $("#modelos").innerHTML = `<div class="notice info" style="margin:0">A perguntar à API…</div>`;
+    try {
+      const ms = await IA.listarModelos();
+      if (!ms.length) {
+        $("#modelos").innerHTML = `<div class="notice warn" style="margin:0"><strong>Nenhum modelo disponível</strong>A chave é válida mas não tem modelos com generateContent.</div>`;
+        return;
+      }
+      $("#listaModelos").innerHTML = ms.map(m => `<option value="${escapar(m.id)}">${escapar(m.nome)}</option>`).join("");
+      $("#modelos").innerHTML = `
+        <div class="card">
+          <div class="row between" style="margin-bottom:10px"><b>Modelos disponíveis</b><span class="muted">${ms.length}</span></div>
+          <div class="chips">${ms.map(m => `<button class="chip plain" data-modelo="${escapar(m.id)}">${escapar(m.id)}</button>`).join("")}</div>
+          <div class="muted small" style="margin-top:10px">Toca num para o escolher. Para esta app serve qualquer «flash» — é mais barato e rápido do que os «pro».</div>
+        </div>`;
+      $$("[data-modelo]").forEach(b => b.onclick = () => {
+        $("#modelo").value = b.dataset.modelo;
+        store.guardarConfig({ modelo: b.dataset.modelo });
+        toast(b.dataset.modelo + " escolhido.");
+      });
+    } catch (e) {
+      $("#modelos").innerHTML = `<div class="notice danger" style="margin:0"><strong>Não foi possível listar</strong>${escapar(e.message)}</div>`;
+    }
   };
   $("#testar").onclick = async () => {
     store.guardarConfig({ geminiKey: $("#key").value.trim(), modelo: $("#modelo").value.trim() || "gemini-flash-latest" });

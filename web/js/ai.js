@@ -188,6 +188,40 @@ function resumoLocal(transcricao) {
   return { pontos, perguntas: [], origem: "heurística local (sem chave da IAG)" };
 }
 
+/**
+ * Lista os modelos a que a chave tem acesso.
+ *
+ * Os nomes dos modelos da Gemini mudam com frequência, e um nome escrito à
+ * mão num ficheiro envelhece. Em vez de adivinhar, pergunta-se à API: o que
+ * aparece aqui é exatamente o que esta chave consegue chamar, hoje.
+ */
+export async function listarModelos() {
+  const chave = (store.config().geminiKey || "").trim();
+  if (!chave) throw new Error("sem-chave");
+
+  const r = await fetch(`${RAIZ}?key=${encodeURIComponent(chave)}&pageSize=200`);
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error(`${r.status}: ${t.slice(0, 180)}`);
+  }
+  const d = await r.json();
+
+  return (d.models || [])
+    .filter(m => {
+      // A referência REST diz supportedGenerationMethods; alguns SDK devolvem
+      // supportedActions. Aceitar os dois evita uma lista vazia sem razão.
+      const met = m.supportedGenerationMethods || m.supportedActions || [];
+      return met.includes("generateContent");
+    })
+    .map(m => ({
+      id: (m.name || "").replace(/^models\//, ""),
+      nome: m.displayName || "",
+      entrada: m.inputTokenLimit || null
+    }))
+    .filter(m => m.id)
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
 export async function testarChave() {
   try {
     await pedir('Responde apenas com JSON: {"ok":true}', { maxTokens: 20 });
