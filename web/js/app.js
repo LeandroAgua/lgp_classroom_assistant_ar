@@ -17,7 +17,7 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-14.8";
+export const VERSAO = "2026-11-14.9";
 
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -689,17 +689,25 @@ async function abrirTermo(termo, s, a) {
 function abrirPergunta(s) {
   const back = document.createElement("div");
   back.className = "sheet-back pergunta";
+  // Em ecrã largo isto deixa de ser modal: fica ancorado à direita e a aula
+  // continua a legendar à esquerda. Tapar a aula para perguntar sobre a aula
+  // era exatamente o problema a evitar.
   back.innerHTML = `
-    <div class="sheet alta" role="dialog" aria-modal="true" aria-label="Fazer uma pergunta">
+    <div class="sheet alta" role="dialog" aria-label="Fazer uma pergunta">
       <div class="sheet-grip"></div>
       <div id="passo"></div>
     </div>`;
   document.body.appendChild(back);
+  document.body.classList.add("com-pergunta");
 
   const passo = $("#passo", back);
   let camara = null;
 
-  const fechar = () => { if (camara) camara.parar(); back.remove(); };
+  const fechar = () => {
+    if (camara) camara.parar();
+    back.remove();
+    document.body.classList.remove("com-pergunta");
+  };
   back.onclick = e => { if (e.target === back) fechar(); };
   /* E06 — enquadramento e reconhecimento.
 
@@ -1341,6 +1349,7 @@ const rotas = [
 function encaminhar() {
   if (limpezaEcra) { try { limpezaEcra(); } catch (e) { console.error(e); } limpezaEcra = null; }
   $$(".sheet-back").forEach(el => el.remove());
+  document.body.classList.remove("com-pergunta");
   pararFala();
   const h = location.hash || "#/aulas";
   for (const [re, fn] of rotas) {

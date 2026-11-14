@@ -502,6 +502,12 @@ input[type="range"]::-moz-range-thumb{
   display:flex; flex-direction:column; gap:10px;
   max-height:94vh; padding-bottom:18px;
 }
+/* O conteúdo vive dentro de #passo: sem o tornar também contentor flex, o
+   flex:1 da câmara não tem a quem crescer e ela encolhe para o mínimo. */
+.sheet-back.pergunta #passo{
+  display:flex; flex-direction:column; gap:10px;
+  flex:1 1 auto; min-height:0;
+}
 .pq-topo{display:flex; align-items:center; gap:12px}
 .pq-topo h3{flex:0 0 auto; font-size:19px; margin:0}
 .tabs.compacto{flex:1; padding:3px}
@@ -567,3 +573,55 @@ input[type="range"]::-moz-range-thumb{
 }
 /* O texto de ajuda dentro da câmara não deve rolar nem partir: encolhe. */
 .recolhido .grow .muted{display:block; overflow:hidden; text-overflow:ellipsis}
+
+/* ───────────────── duas colunas em ecrã largo ─────────────────
+   Telemóvel: a pergunta sobe de baixo e cobre a aula, porque não há espaço
+   para mais. Ecrã largo: a legenda fica à esquerda e a pergunta à direita,
+   e a aula continua a correr enquanto se escreve — que é o ponto. Tapar a
+   aula para perguntar sobre a aula não fazia sentido nenhum. */
+
+@media (min-width:980px){
+  :root{ --pq-w: min(430px, 38vw); }
+
+  /* O conteúdo da sessão encolhe para a esquerda em vez de ficar tapado. */
+  body.com-pergunta #app{
+    max-width:none;
+    margin-left:clamp(16px, 5vw, 80px);
+    margin-right:calc(var(--pq-w) + 28px);
+  }
+  /* A barra de ações já está dentro do #app: só precisa de deixar de se
+     auto-centrar, senão flutua no meio do espaço que sobrou. */
+  body.com-pergunta .sess-actions{ max-width:none; margin:14px 0 0; }
+  body.com-pergunta #legenda{ font-size:20px; }
+  /* A barra de separadores pára na borda do painel em vez de lhe passar por baixo. */
+  body.com-pergunta #tabbar{ right:var(--pq-w); }
+
+  /* O fundo deixa de escurecer e deixa de apanhar cliques: só o painel é
+     interativo, o resto da página continua a ser usável. */
+  .sheet-back.pergunta{
+    inset:0 0 0 auto; width:var(--pq-w);
+    background:transparent; align-items:stretch;
+    pointer-events:none;
+  }
+  .sheet-back.pergunta .sheet{
+    pointer-events:auto;
+    width:100%; max-width:none; height:100%; max-height:none;
+    border-radius:0; border-left:1px solid var(--line);
+    box-shadow:-10px 0 34px rgba(10,18,26,.14);
+    padding:20px 22px 22px; gap:12px;
+  }
+  .sheet-back.pergunta .sheet-grip{display:none}
+
+  /* Numa coluna estreita e alta a câmara preenche o que sobra. A proporção
+     fixa é dispensada aqui: com ela, sobrava uma faixa branca em baixo e a
+     câmara ficava menor do que o espaço disponível. O object-fit do vídeo
+     trata do enquadramento. */
+  .camera-wrap.pq{ aspect-ratio:auto; max-height:none; min-height:220px; flex:1 1 auto; }
+  .pq-topo h3{font-size:20px}
+}
+
+@media (min-width:980px) and (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .sheet-back.pergunta .sheet{
+    box-shadow:-10px 0 34px rgba(0,0,0,.5);
+  }
+}
