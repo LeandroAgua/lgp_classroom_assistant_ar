@@ -491,3 +491,79 @@ input[type="range"]::-moz-range-thumb{
   font-size:15px; line-height:1; padding:0 0 0 6px; opacity:.6;
 }
 .chip .x:hover{opacity:1}
+
+/* ───────────────── ecrã de perguntar, compacto ─────────────────
+   Tudo tem de caber num telemóvel sem scroll: a câmara, o que foi
+   reconhecido e o botão de avançar. O texto explicativo recolhe para uma
+   linha, e o que foi recolhido passa a viver DENTRO da câmara em vez de
+   ocupar um bloco próprio. */
+
+.sheet-back.pergunta .sheet{
+  display:flex; flex-direction:column; gap:10px;
+  max-height:94vh; padding-bottom:18px;
+}
+.pq-topo{display:flex; align-items:center; gap:12px}
+.pq-topo h3{flex:0 0 auto; font-size:19px; margin:0}
+.tabs.compacto{flex:1; padding:3px}
+.tabs.compacto button{padding:7px 6px; font-size:13px}
+
+.aviso-linha{
+  font-size:13px; line-height:1.45; color:var(--warn);
+  background:var(--warn-bg); border:1px solid var(--warn-line);
+  border-radius:var(--radius-sm); padding:9px 12px;
+}
+.aviso-linha.plano{color:var(--ink-2); background:var(--navy-50); border-color:var(--line)}
+.aviso-linha summary{cursor:pointer; list-style:none; font-weight:500}
+.aviso-linha summary::-webkit-details-marker{display:none}
+.aviso-linha summary::after{content:" ⌄"; opacity:.7; font-weight:700}
+.aviso-linha[open] summary::after{content:" ⌃"}
+.aviso-linha[open] summary{margin-bottom:6px}
+
+/* A câmara deixa de ser 3/4: num telemóvel isso era meio ecrã só para ela. */
+.camera-wrap.pq{
+  aspect-ratio:4/3; max-height:44vh; min-height:200px; flex:0 1 auto;
+}
+.camera-hint.curta{
+  padding:22px 14px 12px; font-size:13px;
+  bottom:auto; top:0;
+  background:linear-gradient(rgba(8,12,16,.85), transparent);
+}
+
+.recolhido{
+  position:absolute; left:8px; right:8px; bottom:8px; z-index:2;
+  display:flex; align-items:center; gap:6px;
+  background:rgba(10,15,20,.82); backdrop-filter:blur(6px);
+  border-radius:10px; padding:8px 10px; min-height:44px;
+}
+.recolhido .grow{
+  min-width:0; overflow-x:auto; white-space:nowrap;
+  color:#FFF0BF; font-size:19px; font-weight:600; letter-spacing:.08em;
+}
+.recolhido .grow .muted{
+  color:#9FB3C4; font-size:12.5px; font-weight:400; letter-spacing:0;
+}
+.recolhido .grow .glosa{font-size:12.5px; letter-spacing:.03em; margin-right:5px}
+.recolhido .mini{
+  flex:0 0 auto; width:32px; height:32px; border-radius:8px;
+  border:1px solid rgba(255,255,255,.22); background:rgba(255,255,255,.08);
+  color:#E3EDF5; font-size:15px; line-height:1; cursor:pointer;
+}
+.recolhido .mini:active{background:rgba(255,255,255,.2)}
+
+.pq-acoes{display:flex; flex-direction:column; gap:8px; flex:0 0 auto}
+.pq-links{
+  display:flex; align-items:center; justify-content:center;
+  gap:14px; flex-wrap:wrap; font-size:12.5px;
+}
+.ligacao{
+  border:0; background:transparent; color:var(--navy);
+  font-size:12.5px; font-weight:600; cursor:pointer; padding:2px;
+}
+.pq-links .muted{font-size:12px}
+
+@media (max-height:700px){
+  .camera-wrap.pq{max-height:34vh; min-height:160px}
+  .aviso-linha{font-size:12.5px; padding:7px 10px}
+}
+/* O texto de ajuda dentro da câmara não deve rolar nem partir: encolhe. */
+.recolhido .grow .muted{display:block; overflow:hidden; text-overflow:ellipsis}

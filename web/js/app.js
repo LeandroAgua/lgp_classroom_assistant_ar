@@ -17,7 +17,7 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-14.7";
+export const VERSAO = "2026-11-14.8";
 
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -734,51 +734,47 @@ function abrirPergunta(s) {
       const asl = modo === "asl";
 
       passo.innerHTML = `
-        <h3>Faz a tua pergunta em LGP</h3>
-
-        <div class="tabs" style="margin:12px 0 10px">
-          <button role="tab" data-modo="gestos" aria-selected="${!asl}">Gestos gravados${temGestos ? ` (${st.classes})` : ""}</button>
-          <button role="tab" data-modo="asl" aria-selected="${asl}">Alfabeto ASL</button>
+        <div class="pq-topo">
+          <h3>Perguntar</h3>
+          <div class="tabs compacto" role="tablist">
+            <button role="tab" data-modo="gestos" aria-selected="${!asl}">Gestos${temGestos ? ` ${st.classes}` : ""}</button>
+            <button role="tab" data-modo="asl" aria-selected="${asl}">ASL</button>
+          </div>
         </div>
 
         ${asl ? `
-          <div class="notice warn" style="margin:0 0 12px">
-            <strong>Isto é o alfabeto ASL, não é LGP</strong>
-            Não existe modelo público do alfabeto da LGP. Está aqui para demonstrar a cadeia completa — câmara, pontos da mão, classificador, letra. 24 letras: o J e o Z precisam de movimento e ficam de fora.
-          </div>`
+          <details class="aviso-linha">
+            <summary><b>Alfabeto ASL</b> — não é LGP</summary>
+            Não existe modelo público do alfabeto da LGP. Isto demonstra a cadeia completa:
+            câmara, pontos da mão, classificador, letra. São 24 letras — o J e o Z precisam
+            de movimento e ficam de fora.
+          </details>`
         : temGestos ? `
-          <div class="notice info" style="margin:0 0 12px">
-            <strong>Reconhece ${st.classes} gesto${st.classes > 1 ? "s" : ""} que gravaste</strong>
-            Tudo o resto não é reconhecido. Podes escrever a qualquer momento.
-          </div>`
+          <div class="aviso-linha plano">Reconhece só os ${st.classes} gesto${st.classes > 1 ? "s" : ""} que gravaste.</div>`
         : `
-          <div class="notice warn" style="margin:0 0 12px">
-            Ainda não gravaste gestos. Usa o alfabeto ASL para ver a cadeia a funcionar, ou escreve a pergunta.
-          </div>`}
+          <div class="aviso-linha plano">Sem gestos gravados. Experimenta o alfabeto ASL, ou escreve.</div>`}
 
-        <div class="camera-wrap">
+        <div class="camera-wrap pq">
           <video id="cam" autoplay playsinline muted></video>
           <canvas id="pontos"></canvas>
           <div class="gesto-chip" id="chip" hidden>—</div>
-          <div class="camera-hint" id="hint">A pedir acesso à câmara…</div>
-        </div>
-
-        <div style="margin-top:12px">
-          <div class="row between" style="margin-bottom:6px">
-            <b class="small">${asl ? "Letras soletradas" : "Gestos reconhecidos"}</b>
-            <span class="row" style="gap:10px">
-              ${asl ? `<button class="btn ghost sm" id="btnEspaco" style="padding:2px 0">espaço</button>
-                       <button class="btn ghost sm" id="btnApagar" style="padding:2px 0">apagar</button>` : ""}
-              <button class="btn ghost sm" id="btnLimpar" style="padding:2px 0">limpar</button>
-            </span>
+          <div class="camera-hint curta" id="hint">A pedir acesso à câmara…</div>
+          <div class="recolhido">
+            <div class="grow" id="glosas"></div>
+            ${asl ? `<button class="mini" id="btnEspaco" title="Espaço">␣</button>
+                     <button class="mini" id="btnApagar" title="Apagar a última">⌫</button>` : ""}
+            <button class="mini" id="btnLimpar" title="Limpar tudo">✕</button>
           </div>
-          <div class="glosas" id="glosas"></div>
         </div>
 
-        <p class="muted small" style="margin-top:10px">A imagem fica no teu dispositivo e não é gravada.</p>
-        <button class="btn" id="btnEscrever" style="margin-top:6px">Continuar e escrever</button>
-        ${temGestos ? "" : `<button class="btn ghost" id="btnGravar">Gravar gestos de LGP</button>`}
-        <button class="btn ghost" id="btnCancelar">Cancelar</button>`;
+        <div class="pq-acoes">
+          <button class="btn" id="btnEscrever">Continuar e escrever</button>
+          <div class="pq-links">
+            <button class="ligacao" id="btnCancelar">Cancelar</button>
+            ${temGestos ? "" : `<button class="ligacao" id="btnGravar">Gravar gestos de LGP</button>`}
+            <span class="muted">A imagem não sai do dispositivo</span>
+          </div>
+        </div>`;
 
       $$("[data-modo]", back).forEach(b => b.onclick = () => trocarModo(b.dataset.modo));
       pintar();
@@ -799,13 +795,17 @@ function abrirPergunta(s) {
       if (!el) return;
       if (modo === "asl") {
         el.innerHTML = soletrado
-          ? `<span style="font-size:22px;font-weight:600;letter-spacing:.08em">${escapar(soletrado)}</span>`
-          : `<span class="muted small">Faz uma letra e mantém a mão parada.</span>`;
+          ? escapar(soletrado)
+          : `<span class="muted">Faz uma letra e mantém a mão parada</span>`;
       } else {
         el.innerHTML = sequencia.length
           ? sequencia.map(g => `<span class="glosa">${escapar(g)}</span>`).join("")
-          : `<span class="muted small">Faz um gesto e mantém a mão parada.</span>`;
+          : `<span class="muted">Faz um gesto e mantém a mão parada</span>`;
       }
+      // Mantém a vista no fim à medida que a palavra cresce — mas só quando há
+      // mesmo conteúdo, senão o texto de ajuda aparece cortado ao início.
+      const temConteudo = modo === "asl" ? !!soletrado : sequencia.length > 0;
+      if (temConteudo) el.scrollLeft = el.scrollWidth;
     }
 
     async function arrancarCamara() {
