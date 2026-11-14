@@ -188,32 +188,6 @@ function resumoLocal(transcricao) {
   return { pontos, perguntas: [], origem: "heurística local (sem chave da IAG)" };
 }
 
-/* ───────────────── glosas → português (UC05 · RF21) ───────────────── */
-
-export async function glosasParaPortugues(glosas) {
-  const seq = (glosas || []).join(" ").trim();
-  if (!seq) return { texto: "", origem: "vazio" };
-
-  if (!temChave()) {
-    // Sem IAG: devolve a sequência tal como foi reconhecida, com pontuação
-    // mínima. O aluno corrige no ecrã de confirmação (RF22), que é
-    // exatamente a salvaguarda que o requisito prevê.
-    const t = seq.toLowerCase();
-    return { texto: t.charAt(0).toUpperCase() + t.slice(1) + "?", origem: "sem IAG — por confirmar" };
-  }
-
-  const prompt = `Converte esta sequência de glosas de Língua Gestual Portuguesa numa pergunta em português europeu corrente, natural e curta.
-
-As glosas estão em maiúsculas e na ordem em que foram gestualizadas. A LGP não segue a ordem do português, por isso reordena conforme necessário. Não acrescentes informação que não esteja nas glosas.
-
-Responde apenas com JSON: {"pergunta":"..."}
-
-GLOSAS: ${seq}`;
-
-  const d = await pedir(prompt, { maxTokens: 200, temperatura: 0.1 });
-  return { texto: String(d.pergunta || "").trim(), origem: "IAG" };
-}
-
 export async function testarChave() {
   try {
     await pedir('Responde apenas com JSON: {"ok":true}', { maxTokens: 20 });

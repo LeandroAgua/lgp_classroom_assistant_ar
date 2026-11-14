@@ -1,13 +1,15 @@
 /* app.js — router e ecrãs.
-   Os identificadores E01..E10 referem-se ao inventário de ecrãs da Fase II. */
+   Os identificadores E01..E10 referem-se ao inventário de ecrãs da Fase II.
+   O âmbito acompanha o protótipo: não há reconhecimento de LGP nesta versão,
+   a pergunta é escrita. Ver camera.js. */
 
 import { store } from "./store.js";
 import { SEED, SIMULACAO } from "./seed.js";
-import { indexar, marcar, escapar, normalizar } from "./glossary.js";
+import { indexar, marcar, escapar } from "./glossary.js";
 import { criarASR, asrDisponivel, verificarMicrofone, verificarRede } from "./asr.js";
 import { falar, parar as pararFala, ttsDisponivel } from "./tts.js";
 import * as IA from "./ai.js";
-import * as LGP from "./lgp.js";
+import { criarCamara } from "./camera.js";
 
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -45,20 +47,25 @@ function marcarTab(nome) {
   if (t) t.setAttribute("aria-current", "page");
 }
 
-function render(html) { app.innerHTML = html; app.scrollTop = 0; window.scrollTo(0, 0); }
+function render(html) { app.innerHTML = html; window.scrollTo(0, 0); }
 
 const horas = ts => new Date(ts).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
 const dataCurta = ts => new Date(ts).toLocaleDateString("pt-PT", { day: "2-digit", month: "short" });
 function duracao(ms) {
   const m = Math.max(0, Math.round(ms / 60000));
+  if (m < 1) return "menos de 1 min";
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}min`;
 }
+const pct = c => typeof c === "number" ? Math.round(c * 100) + "%" : "";
 
 /* ───────────────── E01 · lista de aulas ───────────────── */
 
 function ecraAulas() {
   marcarTab("aulas");
-  topo({ kicker: "Olá, Rita", titulo: "Próximas aulas", direita: `<button class="icon-btn" id="btnCfg" aria-label="Definições">&#9881;</button>` });
+  topo({
+    kicker: "Olá, Rita", titulo: "Próximas aulas",
+    direita: `<button class="icon-btn" id="btnCfg" aria-label="Definições" title="Definições">&#9881;</button>`
+  });
 
   const aulas = store.aulas();
   const ativa = store.sessaoAtiva();
@@ -85,13 +92,10 @@ function ecraAulas() {
             : `<span class="badge warn dot">Sem materiais submetidos</span>`}
         </button>`).join("") : `
         <div class="empty"><div class="big">&#9707;</div><p>Ainda não há aulas.</p></div>`}
-
-      <button class="btn ghost" id="btnTreino">Treinar gestos de LGP</button>
     </div>`);
 
   $$("[data-aula]").forEach(b => b.onclick = () => location.hash = `#/aula/${b.dataset.aula}`);
   $("#btnCfg").onclick = () => location.hash = "#/config";
-  $("#btnTreino").onclick = () => location.hash = "#/treino";
 }
 
 /* ───────────────── E03 · preparar a sessão ───────────────── */
@@ -102,29 +106,46 @@ async function ecraPreparar(id) {
   marcarTab("aulas");
   topo({ kicker: `${a.uc} · Aula ${a.numero}`, titulo: a.titulo, voltar: "#/aulas" });
 
+  const cfg = store.config();
   const temGloss = !!a.glossario;
+
   render(`
     <div class="screen">
       <div class="aula-meta">
         <span>${escapar(a.quando)}</span><span>sala ${escapar(a.sala)}</span><span>Doc. ${escapar(a.docente)}</span>
       </div>
 
-      <div id="verificacoes" class="notice info"><strong>A verificar</strong>Microfone e ligação à rede…</div>
+      <div class="card">
+        <label class="switch-row" for="simToggle">
+          <span class="grow">
+            <b>Modo de simulação</b>
+            <span class="muted small" id="simDesc">${cfg.simulacao
+              ? "Ligado: legendas de exemplo, sem áudio nem vídeo reais."
+              : "Desligado: usa microfone e ficheiros reais."}</span>
+          </span>
+          <input type="checkbox" id="simToggle" role="switch" ${cfg.simulacao ? "checked" : ""}>
+          <span class="switch" aria-hidden="true"></span>
+        </label>
+      </div>
+
+      <div id="verificacoes"></div>
 
       ${temGloss ? `
         <div class="notice ok">
           <strong>Glossário pronto</strong>
-          Extraído de ${escapar(a.glossario.origem)}. A legendagem já conhece estes termos.
+          Extraído dos ${escapar(a.glossario.origem)}. A legendagem já conhece estes termos.
         </div>
         <div class="card">
           <div class="row between" style="margin-bottom:10px">
             <b>Termos extraídos</b>
             <span class="muted">${a.glossario.termos.length}</span>
           </div>
-          <div class="chips">
-            ${a.glossario.termos.slice(0, 8).map(t => `<span class="chip">${escapar(t.termo)}</span>`).join("")}
+          <div class="chips" id="chips">
+            ${a.glossario.termos.slice(0, 6).map(t =>
+              `<span class="chip">${escapar(t.termo)}<i class="conf${t.confianca < 0.9 ? " baixa" : ""}">${pct(t.confianca)}</i></span>`).join("")}
           </div>
-          ${a.glossario.termos.length > 8 ? `<button class="btn ghost sm" id="verTodos" style="margin-top:10px;padding-left:0">ver todos (${a.glossario.termos.length})</button>` : ""}
+          ${a.glossario.termos.length > 6
+            ? `<button class="btn ghost sm" id="verTodos" style="margin-top:10px;padding-left:0">ver todos (${a.glossario.termos.length})</button>` : ""}
         </div>
         <button class="btn" id="btnIniciar">&#9654; Iniciar sessão</button>
       ` : `
@@ -151,20 +172,30 @@ async function ecraPreparar(id) {
       `}
     </div>`);
 
-  // RF02 — verificação de microfone e rede antes de entrar na sessão
-  const [mic, rede] = await Promise.all([verificarMicrofone(), Promise.resolve(verificarRede())]);
-  const box = $("#verificacoes");
-  if (!box) return;
-  const falhas = [];
-  if (!mic.ok) falhas.push(mic.motivo === "recusado" ? "o microfone foi recusado" : "não há microfone disponível");
-  if (!rede.ok) falhas.push("não há ligação à rede");
-  if (falhas.length) {
-    box.className = "notice warn";
-    box.innerHTML = `<strong>Atenção antes de começar</strong>Neste dispositivo ${falhas.join(" e ")}. Podes entrar na sessão e usar o modo de simulação para ver o fluxo.`;
-  } else {
-    box.className = "notice ok";
-    box.innerHTML = `<strong>Microfone e rede verificados</strong>Está tudo pronto para legendar.`;
+  $("#simToggle").onchange = (e) => {
+    store.guardarConfig({ simulacao: e.target.checked });
+    $("#simDesc").textContent = e.target.checked
+      ? "Ligado: legendas de exemplo, sem áudio nem vídeo reais."
+      : "Desligado: usa microfone e ficheiros reais.";
+    correrVerificacoes();
+  };
+
+  // RF02 — verificação de microfone e rede antes de entrar na sessão.
+  async function correrVerificacoes() {
+    const box = $("#verificacoes");
+    if (!box) return;
+    if (store.config().simulacao) { box.innerHTML = ""; return; }
+    box.innerHTML = `<div class="notice info" style="margin:0"><strong>A verificar</strong>Microfone e ligação à rede…</div>`;
+    const [mic, rede] = await Promise.all([verificarMicrofone(), Promise.resolve(verificarRede())]);
+    if (!$("#verificacoes")) return;
+    const falhas = [];
+    if (!mic.ok) falhas.push(mic.motivo === "recusado" ? "o microfone foi recusado" : "não há microfone disponível");
+    if (!rede.ok) falhas.push("não há ligação à rede");
+    $("#verificacoes").innerHTML = falhas.length
+      ? `<div class="notice warn" style="margin:0"><strong>Atenção antes de começar</strong>Neste dispositivo ${falhas.join(" e ")}. Liga o modo de simulação para ver o fluxo.</div>`
+      : `<div class="notice ok" style="margin:0"><strong>Microfone e rede verificados</strong>Está tudo pronto para legendar.</div>`;
   }
+  correrVerificacoes();
 
   $("#btnIniciar") && ($("#btnIniciar").onclick = () => iniciarSessao(a.id));
   $("#opSubmeter") && ($("#opSubmeter").onclick = () => location.hash = `#/material/${a.id}`);
@@ -174,7 +205,8 @@ async function ecraPreparar(id) {
     setTimeout(() => iniciarSessao(a.id), 900);
   });
   $("#verTodos") && ($("#verTodos").onclick = () => {
-    $(".chips").innerHTML = a.glossario.termos.map(t => `<span class="chip">${escapar(t.termo)}</span>`).join("");
+    $("#chips").innerHTML = a.glossario.termos.map(t =>
+      `<span class="chip">${escapar(t.termo)}<i class="conf${t.confianca < 0.9 ? " baixa" : ""}">${pct(t.confianca)}</i></span>`).join("");
     $("#verTodos").remove();
   });
 }
@@ -250,7 +282,7 @@ function ecraMaterial(id) {
         estado.innerHTML = `<div class="notice warn"><strong>Glossário vazio</strong>Não foi identificada terminologia da disciplina neste material.</div>`;
         return;
       }
-      a.material = { nome, paginas: null, submetidoPor: "aluno" };
+      a.material = { nome, submetidoPor: "aluno" };
       a.glossario = { geradoEm: Date.now(), origem, termos };
       store.guardarAula(a);
       estado.innerHTML = `
@@ -280,44 +312,48 @@ async function lerPDF(f) {
 
 /* ───────────────── E04 · sessão ao vivo ───────────────── */
 
-let ctxSessao = null;
-
 function ecraSessao(sid) {
   const s = store.sessao(sid);
   if (!s) return (location.hash = "#/aulas");
+  if (s.fim) return (location.hash = `#/resumo/${s.id}`);
   const a = store.aula(s.aulaId);
   marcarTab("sessao");
 
-  if (s.fim) return (location.hash = `#/resumo/${s.id}`);
-
   const indice = indexar(a?.glossario?.termos || []);
-  const limiar = store.config().limiarConfianca;
+  const simular = !!store.config().simulacao;
 
   topo({
     kicker: `${a?.uc || ""} · Aula ${a?.numero || ""}`,
     titulo: a?.titulo || "Sessão",
     voltar: "#/aulas",
-    direita: `<button class="icon-btn" id="btnSim" aria-label="Modo de simulação" title="Modo de simulação">&#9655;</button>`
+    direita: `<button class="icon-btn" id="btnAjustes" aria-label="Ajustes da legenda" title="Ajustes da legenda">&#9881;</button>`
   });
 
   render(`
     <div class="screen">
-      <div class="sess-status"><span class="pulse"></span><span id="estadoSess">A ligar…</span><span class="right" id="relogio"></span></div>
-      ${a?.glossario ? "" : `<div class="notice warn"><strong>Aula sem glossário</strong>Os termos técnicos não são contextualizados. Segmentos pouco seguros ficam assinalados.</div>`}
+      <div class="sess-status">
+        <span class="pulse" id="pulso"></span>
+        <span id="estadoSess">${simular ? "Simulação · a legendar" : "A ligar…"}</span>
+        <span class="right" id="relogio">00:00</span>
+      </div>
+      <div class="sess-sub">${escapar(a?.uc || "")} · ${escapar(a?.titulo || "")}</div>
+      ${simular ? `<div class="notice warn" style="margin:0">Modo de simulação — legendas de exemplo, sem áudio nem vídeo reais.</div>` : ""}
+      ${a?.glossario ? "" : `<div class="notice warn" style="margin:0"><strong>Aula sem glossário</strong>Os termos técnicos não são contextualizados.</div>`}
       <div id="legenda"></div>
       <div id="parcial" class="linha parcial" hidden><span class="t"></span><span class="txt"></span></div>
-      <div style="height:80px"></div>
+      <div style="height:90px"></div>
     </div>
     <div class="sess-actions">
-      <button class="btn sec" id="btnPerguntar">&#9995; Perguntar</button>
-      <button class="btn danger" id="btnTerminar">Terminar</button>
+      <button class="act" id="btnPausar"><span class="ico">&#10073;&#10073;</span><span>Pausar</span></button>
+      <button class="act fab" id="btnPerguntar"><span class="ico">&#9995;</span><span>Fazer uma<br>pergunta</span></button>
+      <button class="act danger" id="btnTerminar"><span class="ico">&#9632;</span><span>Terminar</span></button>
     </div>`);
 
   const elLegenda = $("#legenda"), elParcial = $("#parcial"), elEstado = $("#estadoSess");
 
   function pintar() {
     elLegenda.innerHTML = s.linhas.map(l => `
-      <div class="linha${l.confianca < limiar ? " incerta" : ""}">
+      <div class="linha">
         <span class="t">${horas(l.t)}</span>
         <span class="txt">${marcar(l.texto, indice)}</span>
       </div>`).join("");
@@ -325,11 +361,13 @@ function ecraSessao(sid) {
   }
   pintar();
 
-  const relogio = setInterval(() => {
+  const relogio = setInterval(tick, 1000); tick();
+  function tick() {
     const el = $("#relogio");
-    if (el) el.textContent = duracao(Date.now() - s.inicio);
-  }, 10000);
-  $("#relogio").textContent = duracao(Date.now() - s.inicio);
+    if (!el) return;
+    const d = Math.floor((Date.now() - s.inicio) / 1000);
+    el.textContent = `${String(Math.floor(d / 60)).padStart(2, "0")}:${String(d % 60).padStart(2, "0")}`;
+  }
 
   function acrescentar(texto, confianca) {
     if (!texto) return;
@@ -338,54 +376,63 @@ function ecraSessao(sid) {
     pintar();
   }
 
-  /* --- fonte: microfone real --- */
+  /* --- fontes: microfone real ou simulação --- */
+  let simTimer = null, simIdx = 0, emPausa = false;
+
   const asr = criarASR({
     lingua: "pt-PT",
     onParcial: (t) => { elParcial.hidden = false; $(".txt", elParcial).textContent = t; },
     onFinal: ({ texto, confianca }) => { elParcial.hidden = true; acrescentar(texto, confianca); },
     onEstado: (e) => {
-      if (simTimer) return;          // em simulação o estado é da simulação
+      if (simular || emPausa) return;
       elEstado.textContent = ({
         "a-ouvir": "A legendar", "a-retomar": "A retomar…",
         "sem-permissao": "Microfone recusado", "parado": "Em pausa"
       })[e] || e;
     },
-    onErro: (e) => {
-      if (e.message === "network") toast("Ligação perdida. A app retoma sozinha.");
-    }
+    onErro: (e) => { if (e.message === "network") toast("Ligação perdida. A app retoma sozinha."); }
   });
 
-  /* --- fonte: simulação, para demonstrar sem microfone --- */
-  let simTimer = null, simIdx = 0;
-  function alternarSimulacao() {
-    if (simTimer) {
-      clearInterval(simTimer); simTimer = null;
-      elEstado.textContent = "Simulação parada";
-      return;
-    }
-    const guiao = SIMULACAO[s.aulaId] || SIMULACAO["a-prog-06"];
-    simTimer = -1;                   // marcar ANTES de parar o ASR, para o onEstado o ignorar
-    asr.parar();
-    elEstado.textContent = "Simulação";
+  function arrancarSimulacao() {
+    const guiao = SIMULACAO[s.aulaId] || SIMULACAO["prog-6"];
     simTimer = setInterval(() => {
-      const f = guiao[simIdx % guiao.length];
+      acrescentar(guiao[simIdx % guiao.length], 0.86 + Math.random() * 0.12);
       simIdx++;
-      acrescentar(f, 0.6 + Math.random() * 0.4);
     }, 3200);
   }
 
-  if (asrDisponivel) asr.iniciar();
-  else { elEstado.textContent = "Sem reconhecimento de fala"; toast("Este browser não suporta reconhecimento de fala. Usa o modo de simulação (▷)."); }
+  if (simular) arrancarSimulacao();
+  else if (asrDisponivel) asr.iniciar();
+  else {
+    elEstado.textContent = "Sem reconhecimento de fala";
+    toast("Este browser não suporta reconhecimento de fala. Liga o modo de simulação.");
+  }
 
-  $("#btnSim").onclick = alternarSimulacao;
+  $("#btnPausar").onclick = () => {
+    emPausa = !emPausa;
+    const b = $("#btnPausar");
+    if (emPausa) {
+      if (simTimer) { clearInterval(simTimer); simTimer = null; } else asr.parar();
+      elEstado.textContent = "Em pausa";
+      $("#pulso").classList.add("parado");
+      b.querySelector("span:last-child").textContent = "Retomar";
+      b.querySelector(".ico").innerHTML = "&#9654;";
+    } else {
+      if (simular) arrancarSimulacao(); else asr.iniciar();
+      elEstado.textContent = simular ? "Simulação · a legendar" : "A legendar";
+      $("#pulso").classList.remove("parado");
+      b.querySelector("span:last-child").textContent = "Pausar";
+      b.querySelector(".ico").innerHTML = "&#10073;&#10073;";
+    }
+  };
 
-  /* --- consulta de termo: abre sobre a legenda, não é ecrã autónomo --- */
   elLegenda.addEventListener("click", (ev) => {
     const el = ev.target.closest(".termo");
     if (el) abrirTermo(el.dataset.termo, s, a);
   });
 
-  $("#btnPerguntar").onclick = () => location.hash = `#/pergunta/${s.id}`;
+  $("#btnAjustes").onclick = () => location.hash = "#/config";
+  $("#btnPerguntar").onclick = () => abrirPergunta(s);
   $("#btnTerminar").onclick = () => {
     s.fim = Date.now();
     store.guardarSessao(s);
@@ -398,12 +445,17 @@ function ecraSessao(sid) {
 /* --- folha de explicação do termo (estado do E04) --- */
 
 async function abrirTermo(termo, s, a) {
+  const dados = (a?.glossario?.termos || []).find(t => t.termo === termo);
   const back = document.createElement("div");
   back.className = "sheet-back";
   back.innerHTML = `
     <div class="sheet" role="dialog" aria-modal="true" aria-label="Significado de ${escapar(termo)}">
       <div class="sheet-grip"></div>
-      <h3>${escapar(termo)}</h3>
+      <div class="row between" style="margin-bottom:8px">
+        <h3 style="margin:0">${escapar(termo)}</h3>
+        ${dados && typeof dados.confianca === "number"
+          ? `<span class="badge ${dados.confianca < 0.9 ? "warn" : "ok"}">${pct(dados.confianca)} de confiança</span>` : ""}
+      </div>
       <div class="corpo" id="corpoTermo"><span class="muted">A procurar…</span></div>
       <button class="btn sec" id="fecharTermo" style="margin-top:20px">Fechar</button>
     </div>`;
@@ -421,7 +473,7 @@ async function abrirTermo(termo, s, a) {
     const corpo = $("#corpoTermo", back);
     if (!corpo) return;
     if (!r.texto) {
-      corpo.innerHTML = `<div class="notice warn" style="margin:0"><strong>Sem informação suficiente</strong>Os materiais desta aula não explicam este termo. ${IA.temChave() ? "" : "Configura uma chave da IAG nas definições para gerar explicações."}</div>`;
+      corpo.innerHTML = `<div class="notice warn" style="margin:0"><strong>Sem informação suficiente</strong>Os materiais desta aula não explicam este termo.${IA.temChave() ? "" : " Configura uma chave da IAG nas definições."}</div>`;
       return;
     }
     corpo.innerHTML = escapar(r.texto)
@@ -433,163 +485,101 @@ async function abrirTermo(termo, s, a) {
   }
 }
 
-/* ───────────────── E06 · pergunta em LGP ───────────────── */
+/* ───────────────── E06/E07 · pergunta (sobreposição do E04) ───────────────── */
 
-function ecraPergunta(sid) {
-  const s = store.sessao(sid);
-  if (!s) return (location.hash = "#/aulas");
-  marcarTab("sessao");
-  topo({ kicker: "Perguntar", titulo: "Faz a tua pergunta em LGP", voltar: `#/sessao/${s.id}` });
+function abrirPergunta(s) {
+  const back = document.createElement("div");
+  back.className = "sheet-back pergunta";
+  back.innerHTML = `
+    <div class="sheet alta" role="dialog" aria-modal="true" aria-label="Fazer uma pergunta">
+      <div class="sheet-grip"></div>
+      <div id="passo"></div>
+    </div>`;
+  document.body.appendChild(back);
 
-  render(`
-    <div class="screen">
+  const passo = $("#passo", back);
+  let camara = null;
+
+  const fechar = () => { if (camara) camara.parar(); back.remove(); };
+  back.onclick = e => { if (e.target === back) fechar(); };
+
+  /* E06 — enquadramento. A app diz com todas as letras que não reconhece
+     o gesto: prometer reconhecimento e entregar adivinhação era pior. */
+  function passoCamara() {
+    passo.innerHTML = `
+      <h3>Faz a tua pergunta em LGP</h3>
+      <div class="notice warn" style="margin:10px 0 12px">
+        A câmara não reconhece LGP. Escreve a pergunta antes de a dizer em voz alta.
+      </div>
       <div class="camera-wrap">
         <video id="cam" autoplay playsinline muted></video>
-        <canvas id="pontos"></canvas>
-        <div class="gesto-chip" id="gesto" hidden>—</div>
         <div class="camera-hint" id="hint">A pedir acesso à câmara…</div>
       </div>
+      <p class="muted small" style="margin-top:10px">A imagem fica no teu dispositivo e não é gravada.</p>
+      <button class="btn" id="btnEscrever" style="margin-top:6px">Escrever a pergunta</button>
+      <button class="btn ghost" id="btnCancelar">Cancelar</button>`;
 
-      <div>
-        <div class="row between" style="margin-bottom:7px">
-          <b class="small">Glosas reconhecidas</b>
-          <button class="btn ghost sm" id="btnLimpar" style="padding:2px 0">limpar</button>
-        </div>
-        <div class="glosas" id="glosas"><span class="muted small">Faz um gesto que tenhas treinado e toca em «Adicionar».</span></div>
-      </div>
-
-      <div class="row" style="gap:10px">
-        <button class="btn sec" id="btnAdd" disabled>+ Adicionar gesto</button>
-        <button class="btn" id="btnPronto" disabled>Terminei</button>
-      </div>
-
-      <button class="btn ghost" id="btnEscrever">Prefiro escrever a pergunta</button>
-      <p class="muted small">O vídeo é processado no dispositivo e nunca é enviado nem guardado. Só a sequência de glosas segue para o passo seguinte.</p>
-    </div>`);
-
-  const glosas = [];
-  let ultimo = null;
-
-  const captura = LGP.criarCaptura({
-    video: $("#cam"),
-    canvas: $("#pontos"),
-    onResultado: (r) => {
-      const chip = $("#gesto"), add = $("#btnAdd");
-      if (!chip) return;
-      if (!r) { chip.hidden = true; ultimo = null; add.disabled = true; return; }
-      chip.hidden = false;
-      if (r.propria && r.propria.confianca >= 0.6) {
-        ultimo = r.propria.etiqueta;
-        chip.textContent = `${r.propria.etiqueta} · ${Math.round(r.propria.confianca * 100)}%`;
-      } else if (r.gestoPreTreinado && r.gestoPreTreinado.categoryName !== "None") {
-        ultimo = LGP.GESTOS_PRE_TREINADOS[r.gestoPreTreinado.categoryName] || r.gestoPreTreinado.categoryName;
-        chip.textContent = `${ultimo} · ${Math.round(r.gestoPreTreinado.score * 100)}%`;
-      } else {
-        ultimo = null;
-        chip.textContent = "mão detetada";
+    camara = criarCamara({
+      video: $("#cam", back),
+      onErro: () => {
+        const h = $("#hint", back);
+        if (h) h.textContent = "Não foi possível abrir a câmara. Verifica as permissões ou escreve a pergunta.";
       }
-      add.disabled = !ultimo;
-    },
-    onErro: (e) => {
-      const hint = $("#hint");
-      if (hint) hint.innerHTML = e.message === "camara-recusada"
-        ? "A câmara foi recusada. Podes escrever a pergunta em alternativa."
-        : "Não foi possível usar a câmara neste dispositivo.";
-    }
-  });
+    });
+    camara.iniciar().then(ok => { const h = $("#hint", back); if (ok && h) h.textContent = "Enquadra-te dentro do rectângulo."; });
 
-  captura.iniciar().then(ok => { if (ok) $("#hint").textContent = "Enquadra a mão dentro dos cantos."; });
-
-  function pintarGlosas() {
-    const el = $("#glosas");
-    el.innerHTML = glosas.length
-      ? glosas.map(g => `<span class="glosa">${escapar(g)}</span>`).join("")
-      : `<span class="muted small">Faz um gesto que tenhas treinado e toca em «Adicionar».</span>`;
-    $("#btnPronto").disabled = !glosas.length;
+    $("#btnEscrever", back).onclick = () => { camara.parar(); passoEscrever(); };
+    $("#btnCancelar", back).onclick = fechar;
   }
 
-  $("#btnAdd").onclick = () => { if (ultimo) { glosas.push(ultimo); pintarGlosas(); } };
-  $("#btnLimpar").onclick = () => { glosas.length = 0; pintarGlosas(); };
-  $("#btnEscrever").onclick = () => irParaConfirmar(s, "", []);
-  $("#btnPronto").onclick = async () => {
-    $("#btnPronto").disabled = true;
-    $("#btnPronto").textContent = "A converter…";
-    const r = await IA.glosasParaPortugues(glosas).catch(() => ({ texto: glosas.join(" ") }));
-    irParaConfirmar(s, r.texto, glosas);
-  };
-
-  limpezaEcra = () => captura.parar();
-}
-
-let rascunhoPergunta = { texto: "", glosas: [] };
-function irParaConfirmar(s, texto, glosas) {
-  rascunhoPergunta = { texto, glosas };
-  location.hash = `#/confirmar/${s.id}`;
-}
-
-/* ───────────────── E07 · confirmar e dizer ───────────────── */
-
-function ecraConfirmar(sid) {
-  const s = store.sessao(sid);
-  if (!s) return (location.hash = "#/aulas");
-  marcarTab("sessao");
-  topo({ kicker: "Perguntar", titulo: "Confirma antes de enviar", voltar: `#/pergunta/${s.id}` });
-
-  render(`
-    <div class="screen">
-      ${rascunhoPergunta.glosas.length ? `
-        <div>
-          <div class="small muted" style="margin-bottom:6px">glosas reconhecidas</div>
-          <div class="glosas">${rascunhoPergunta.glosas.map(g => `<span class="glosa">${escapar(g)}</span>`).join("")}</div>
-        </div>` : ""}
-
-      <div class="field">
-        <label for="txtPergunta">A pergunta, em português</label>
-        <textarea id="txtPergunta" class="pergunta-box" placeholder="Escreve aqui a tua pergunta…">${escapar(rascunhoPergunta.texto)}</textarea>
+  /* E07 — confirmar e dizer */
+  function passoEscrever() {
+    const vol = store.config().volume ?? 1;
+    passo.innerHTML = `
+      <h3>Escrever a pergunta</h3>
+      <textarea id="txtPergunta" class="pergunta-box" style="margin-top:12px" placeholder="Escreve aqui a tua pergunta…" aria-label="Pergunta"></textarea>
+      <div class="notice warn" style="margin:14px 0 12px">
+        Isto vai ser dito em voz alta na sala. Confirma antes de enviar.
       </div>
-
-      <div class="notice warn">
-        <strong>Isto vai ser dito em voz alta na sala</strong>
-        Confirma o texto antes de enviar. Nada é reproduzido sem a tua confirmação.
+      <div class="field" style="margin-bottom:12px">
+        <label for="vol">Volume</label>
+        <input type="range" id="vol" min="0" max="1" step="0.05" value="${vol}">
       </div>
-
       <button class="btn" id="btnDizer">&#128266; Dizer em voz alta</button>
-      <button class="btn ghost" id="btnCancelar">Cancelar</button>
-    </div>`);
+      <button class="btn ghost" id="btnCancelar2">Cancelar</button>`;
 
-  $("#txtPergunta").focus();
-  $("#btnCancelar").onclick = () => location.hash = `#/sessao/${s.id}`;
-  $("#btnDizer").onclick = async () => {
-    const texto = $("#txtPergunta").value.trim();
-    if (!texto) return toast("Escreve a pergunta primeiro.");
-    if (!ttsDisponivel) return toast("Este dispositivo não tem síntese de voz.");
+    $("#txtPergunta", back).focus();
+    $("#vol", back).oninput = e => store.guardarConfig({ volume: Number(e.target.value) });
+    $("#btnCancelar2", back).onclick = fechar;
+    $("#btnDizer", back).onclick = async () => {
+      const texto = $("#txtPergunta", back).value.trim();
+      if (!texto) return toast("Escreve a pergunta primeiro.");
+      if (!ttsDisponivel) return toast("Este dispositivo não tem síntese de voz.");
 
-    render(`
-      <div class="screen">
+      s.perguntas.push({ t: Date.now(), texto });
+      store.guardarSessao(s);
+
+      passo.innerHTML = `
         <div class="speaking">
           <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
-          <div class="pergunta-box" style="text-align:center;border:0;background:transparent">«${escapar(texto)}»</div>
+          <div style="font-size:20px;font-weight:600;text-align:center">«${escapar(texto)}»</div>
           <div class="muted" id="estadoFala">A dizer em voz alta…</div>
-        </div>
-      </div>`);
+        </div>`;
 
-    s.perguntas.push({ t: Date.now(), texto, glosas: rascunhoPergunta.glosas });
-    store.guardarSessao(s);
+      await falar(texto, { lingua: "pt-PT", volume: store.config().volume ?? 1 });
+      const el = $("#estadoFala", back);
+      if (el) {
+        el.textContent = "A pergunta foi dita.";
+        passo.insertAdjacentHTML("beforeend", `<button class="btn" id="voltarAula">Voltar à aula</button>`);
+        $("#voltarAula", back).onclick = fechar;
+      }
+    };
+  }
 
-    await falar(texto, { lingua: "pt-PT" });
-    const el = $("#estadoFala");
-    if (el) {
-      el.textContent = "A pergunta foi dita.";
-      app.insertAdjacentHTML("beforeend", `<button class="btn" id="voltarAula" style="margin-top:10px">Voltar à aula</button>`);
-      $("#voltarAula").onclick = () => location.hash = `#/sessao/${s.id}`;
-    }
-    rascunhoPergunta = { texto: "", glosas: [] };
-  };
-
-  limpezaEcra = () => pararFala();
+  passoCamara();
 }
 
-/* ───────────────── E08/E09 · resumo, ficha e transcrição ───────────────── */
+/* ───────────────── E08/E09 · resumo ───────────────── */
 
 async function ecraResumo(sid) {
   const s = store.sessao(sid);
@@ -598,24 +588,13 @@ async function ecraResumo(sid) {
   marcarTab("historico");
   topo({ kicker: `${a?.uc || ""} · Aula ${a?.numero || ""}`, titulo: a?.titulo || "Resumo", voltar: "#/historico" });
 
-  const indice = indexar(a?.glossario?.termos || []);
   const transcricao = s.linhas.map(l => l.texto).join(" ");
 
   render(`
     <div class="screen">
-      <div class="muted small">${dataCurta(s.inicio)} · ${duracao((s.fim || Date.now()) - s.inicio)} · ${s.linhas.length} linhas</div>
-      <div class="tabs" role="tablist">
-        <button role="tab" aria-selected="true"  data-vista="resumo">Resumo</button>
-        <button role="tab" aria-selected="false" data-vista="ficha">Ficha</button>
-        <button role="tab" aria-selected="false" data-vista="transcricao">Transcrição</button>
-      </div>
+      <div class="muted small">${dataCurta(s.inicio)} · ${duracao((s.fim || Date.now()) - s.inicio)}</div>
       <div id="vista"></div>
     </div>`);
-
-  $$("[data-vista]").forEach(b => b.onclick = () => {
-    $$("[data-vista]").forEach(x => x.setAttribute("aria-selected", String(x === b)));
-    pintarVista(b.dataset.vista);
-  });
 
   if (!s.resumo) {
     $("#vista").innerHTML = `<div class="notice info"><strong>A gerar o material de revisão</strong>${IA.temChave() ? "A IAG está a resumir a aula…" : "Sem chave da IAG: a usar a heurística local, que é pobre."}</div>`;
@@ -623,66 +602,100 @@ async function ecraResumo(sid) {
       const r = await IA.gerarResumoEFicha(transcricao, { material: "", titulo: a?.titulo || "" });
       s.resumo = { pontos: r.pontos, origem: r.origem };
       s.ficha = r.perguntas;
-      store.guardarSessao(s);
     } catch (e) {
       s.resumo = { pontos: [], origem: "falhou: " + e.message };
       s.ficha = [];
-      store.guardarSessao(s);
     }
+    store.guardarSessao(s);
   }
-  pintarVista("resumo");
 
-  function pintarVista(qual) {
-    const v = $("#vista");
-    if (!v) return;
+  const pontos = s.resumo?.pontos || [];
+  $("#vista").innerHTML = `
+    <div class="card">
+      <b>Pontos principais</b>
+      ${pontos.length ? pontos.map((p, i) => `
+        <div class="ponto">
+          <span class="n">${i + 1}</span>
+          <span class="corpo">${escapar(p.texto)}
+            ${p.slide ? `<span class="slide-ref">slide ${p.slide}</span>` : ""}
+            ${p.incerto ? `<span class="slide-ref incerto">incerto</span>` : ""}
+          </span>
+        </div>`).join("") : `<p class="muted" style="margin-top:10px">Não foi possível gerar pontos a partir desta sessão.</p>`}
+      <div class="muted small" style="margin-top:12px">origem: ${escapar(s.resumo?.origem || "—")}</div>
+    </div>
 
-    if (qual === "resumo") {
-      const pontos = s.resumo?.pontos || [];
-      v.innerHTML = `
-        <div class="card">
-          <b>Pontos principais</b>
-          ${pontos.length ? pontos.map((p, i) => `
-            <div class="ponto">
-              <span class="n">${i + 1}</span>
-              <span class="corpo">${escapar(p.texto)}
-                ${p.slide ? `<span class="slide-ref">slide ${p.slide}</span>` : ""}
-                ${p.incerto ? `<span class="slide-ref" style="background:var(--low);border-color:var(--low-line);color:inherit">incerto</span>` : ""}
-              </span>
-            </div>`).join("") : `<p class="muted" style="margin-top:10px">Não foi possível gerar pontos a partir desta sessão.</p>`}
-          <div class="muted small" style="margin-top:12px">origem: ${escapar(s.resumo?.origem || "—")}</div>
-        </div>
-        ${a?.glossario ? `<div class="card"><b>Termos desta aula</b>
-          <div class="chips" style="margin-top:10px">${a.glossario.termos.map(t =>
-            `<span class="chip${s.consultas.includes(t.termo) ? "" : " plain"}">${escapar(t.termo)}</span>`).join("")}</div>
-          <div class="muted small" style="margin-top:10px">a amarelo, os termos que consultaste durante a aula</div></div>` : ""}
-        <div class="notice info"><strong>Não foi guardado áudio nem vídeo desta aula</strong>Só o texto da transcrição e os indicadores de confiança.</div>`;
-      return;
-    }
+    ${a?.glossario ? `<div class="card"><b>Termos desta aula</b>
+      <div class="chips" style="margin-top:10px">${a.glossario.termos.map(t =>
+        `<span class="chip${s.consultas.includes(t.termo) ? "" : " plain"}">${escapar(t.termo)}</span>`).join("")}</div>
+      <div class="muted small" style="margin-top:10px">a amarelo, os termos que consultaste durante a aula</div></div>` : ""}
 
-    if (qual === "ficha") {
-      const qs = s.ficha || [];
-      v.innerHTML = qs.length ? `<div class="card">${qs.map((q, i) => `
+    <div class="row" style="gap:10px">
+      <a class="btn sec" href="#/revisao/${s.id}">Ficha de revisão</a>
+      <button class="btn sec" id="btnExportar">Exportar</button>
+    </div>
+
+    <div class="notice info">Não foi guardado áudio nem vídeo desta aula.</div>`;
+
+  $("#btnExportar").onclick = () => exportar(s, a);
+}
+
+/** Exportar leva o resumo, a ficha e a transcrição completa — é aqui que o
+ *  E08 (transcrição guardada) chega às mãos do aluno. */
+function exportar(s, a) {
+  const L = [];
+  L.push(`# ${a?.uc || "Aula"} · Aula ${a?.numero || ""} — ${a?.titulo || ""}`);
+  L.push(`${new Date(s.inicio).toLocaleString("pt-PT")} · ${duracao((s.fim || Date.now()) - s.inicio)}`, "");
+  L.push("## Pontos principais", "");
+  (s.resumo?.pontos || []).forEach((p, i) =>
+    L.push(`${i + 1}. ${p.texto}${p.slide ? ` (slide ${p.slide})` : ""}${p.incerto ? " [incerto]" : ""}`));
+  if (s.ficha?.length) {
+    L.push("", "## Ficha de revisão", "");
+    s.ficha.forEach((q, i) => L.push(`${i + 1}. ${q.pergunta}`, `   R: ${q.resposta}`, ""));
+  }
+  if (a?.glossario) {
+    L.push("", "## Termos da aula", "");
+    a.glossario.termos.forEach(t => L.push(`- ${t.termo}${t.explicacao ? `: ${t.explicacao}` : ""}`));
+  }
+  L.push("", "## Transcrição", "");
+  s.linhas.forEach(l => L.push(`[${horas(l.t)}] ${l.texto}`));
+  L.push("", "_Não foi guardado áudio nem vídeo desta aula._");
+
+  const blob = new Blob([L.join("\n")], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const el = document.createElement("a");
+  el.href = url;
+  el.download = `${(a?.uc || "aula").toLowerCase().replace(/\s+/g, "-")}-aula${a?.numero || ""}.md`;
+  el.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast("Exportado.");
+}
+
+/* ───────────────── ficha de revisão ───────────────── */
+
+function ecraRevisao(sid) {
+  const s = store.sessao(sid);
+  if (!s) return (location.hash = "#/aulas");
+  const a = store.aula(s.aulaId);
+  marcarTab("historico");
+  topo({ kicker: "Ficha de revisão", titulo: a?.titulo || "Revisão", voltar: `#/resumo/${s.id}` });
+
+  const qs = s.ficha || [];
+  render(`
+    <div class="screen">
+      ${qs.length ? `<div class="card">${qs.map((q, i) => `
         <div class="qa">
           <div class="q">${i + 1}. ${escapar(q.pergunta)} ${q.slide ? `<span class="slide-ref">slide ${q.slide}</span>` : ""}</div>
           <button class="btn ghost sm" data-resp="${i}" style="padding-left:0">Mostrar resposta</button>
           <div class="a" id="resp${i}" hidden>${escapar(q.resposta)}</div>
         </div>`).join("")}</div>`
-        : `<div class="empty"><div class="big">&#9634;</div><p>Sem ficha de revisão para esta sessão.${IA.temChave() ? "" : " Configura uma chave da IAG para a gerar."}</p></div>`;
-      $$("[data-resp]").forEach(b => b.onclick = () => {
-        const d = $("#resp" + b.dataset.resp);
-        d.hidden = !d.hidden;
-        b.textContent = d.hidden ? "Mostrar resposta" : "Esconder resposta";
-      });
-      return;
-    }
+      : `<div class="empty"><div class="big">&#9634;</div><p>Sem ficha de revisão para esta sessão.${IA.temChave() ? "" : " Configura uma chave da IAG para a gerar."}</p></div>`}
+    </div>`);
 
-    v.innerHTML = s.linhas.length ? `<div class="card">${s.linhas.map(l => `
-      <div class="linha" style="padding:6px 0">
-        <span class="t">${horas(l.t)}</span>
-        <span class="txt">${marcar(l.texto, indice, { confianca: l.confianca, limiar: store.config().limiarConfianca })}</span>
-      </div>`).join("")}</div>`
-      : `<div class="empty"><p>Esta sessão não registou fala.</p></div>`;
-  }
+  $$("[data-resp]").forEach(b => b.onclick = () => {
+    const d = $("#resp" + b.dataset.resp);
+    d.hidden = !d.hidden;
+    b.textContent = d.hidden ? "Mostrar resposta" : "Esconder resposta";
+  });
 }
 
 /* ───────────────── E10 · histórico ───────────────── */
@@ -707,93 +720,17 @@ function ecraHistorico() {
   $$("[data-sessao]").forEach(b => b.onclick = () => location.hash = `#/resumo/${b.dataset.sessao}`);
 }
 
-/* ───────────────── treino de gestos ───────────────── */
-
-function ecraTreino() {
-  marcarTab("aulas");
-  topo({ kicker: "LGP", titulo: "Treinar gestos", voltar: "#/aulas" });
-
-  render(`
-    <div class="screen">
-      <p class="muted">Não existe modelo de LGP pronto a usar. Este treino recolhe exemplos teus e classifica por k-vizinhos sobre os pontos da mão. Com poucos gestos a exatidão é alta; quanto maior o vocabulário, mais cai.</p>
-
-      <div class="camera-wrap" style="aspect-ratio:1/1">
-        <video id="cam" autoplay playsinline muted></video>
-        <canvas id="pontos"></canvas>
-        <div class="gesto-chip" id="gesto" hidden>—</div>
-        <div class="camera-hint" id="hint">A pedir acesso à câmara…</div>
-      </div>
-
-      <div class="field">
-        <label for="etiqueta">Gesto a treinar</label>
-        <input id="etiqueta" placeholder="por exemplo: A, B, SIM, OBRIGADO" autocomplete="off">
-      </div>
-      <button class="btn" id="btnGravar" disabled>Gravar 20 amostras</button>
-
-      <div class="card">
-        <div class="row between"><b>Amostras recolhidas</b><button class="btn ghost sm" id="btnLimparTudo" style="padding:0">apagar tudo</button></div>
-        <div id="stats" class="chips" style="margin-top:10px"></div>
-      </div>
-    </div>`);
-
-  function pintarStats() {
-    const st = LGP.estatisticas();
-    $("#stats").innerHTML = st.total
-      ? st.etiquetas.map(([e, n]) => `<span class="chip">${escapar(e)} · ${n}</span>`).join("")
-      : `<span class="muted small">Ainda não há amostras.</span>`;
-  }
-  pintarStats();
-
-  let vecAtual = null;
-  const captura = LGP.criarCaptura({
-    video: $("#cam"), canvas: $("#pontos"),
-    onResultado: (r) => {
-      const chip = $("#gesto");
-      if (!chip) return;
-      vecAtual = r ? r.vec : null;
-      chip.hidden = !r;
-      if (r) chip.textContent = r.propria ? `${r.propria.etiqueta} · ${Math.round(r.propria.confianca * 100)}%` : "mão detetada";
-      $("#btnGravar").disabled = !r || !$("#etiqueta").value.trim();
-    },
-    onErro: (e) => { const h = $("#hint"); if (h) h.textContent = "Câmara indisponível: " + e.message; }
-  });
-  captura.iniciar().then(ok => { if (ok) $("#hint").textContent = "Mantém o gesto parado enquanto grava."; });
-
-  $("#etiqueta").oninput = () => { $("#btnGravar").disabled = !vecAtual || !$("#etiqueta").value.trim(); };
-
-  $("#btnGravar").onclick = async () => {
-    const etq = $("#etiqueta").value.trim().toUpperCase();
-    if (!etq) return;
-    const btn = $("#btnGravar");
-    btn.disabled = true;
-    for (let i = 0; i < 20; i++) {
-      if (vecAtual) LGP.adicionarAmostra(etq, vecAtual);
-      btn.textContent = `A gravar… ${i + 1}/20`;
-      await new Promise(r => setTimeout(r, 110));
-    }
-    btn.textContent = "Gravar 20 amostras";
-    btn.disabled = false;
-    pintarStats();
-    toast(`${etq} gravado.`);
-  };
-
-  $("#btnLimparTudo").onclick = () => { LGP.limparAmostras(); pintarStats(); toast("Amostras apagadas."); };
-
-  limpezaEcra = () => captura.parar();
-}
-
 /* ───────────────── definições ───────────────── */
 
 function ecraConfig() {
-  marcarTab("aulas");
-  topo({ kicker: "Definições", titulo: "IAG e privacidade", voltar: "#/aulas" });
+  topo({ kicker: "Definições", titulo: "IAG e privacidade", voltar: () => history.back() });
   const c = store.config();
 
   render(`
     <div class="screen">
       <div class="notice info">
         <strong>A app funciona sem chave</strong>
-        Sem IAG, o glossário usa uma heurística local e o resumo fica pobre. A legendagem, a marcação de termos e a captação de gesto funcionam sempre.
+        Sem IAG, o glossário usa uma heurística local e o resumo fica pobre. A legendagem e a marcação de termos funcionam sempre.
       </div>
 
       <div class="field">
@@ -832,8 +769,8 @@ function ecraConfig() {
       : `<div class="notice danger"><strong>Falhou</strong>${escapar(r.erro)}</div>`;
   };
   $("#apagar").onclick = () => {
-    if (!confirm("Apagar aulas, sessões e amostras de gestos deste dispositivo?")) return;
-    store.limpar(); LGP.limparAmostras();
+    if (!confirm("Apagar aulas e sessões deste dispositivo?")) return;
+    store.limpar();
     store.init(SEED);
     location.hash = "#/aulas";
     toast("Dados apagados.");
@@ -843,21 +780,21 @@ function ecraConfig() {
 /* ───────────────── router ───────────────── */
 
 const rotas = [
-  [/^#\/aulas$/,              () => ecraAulas()],
-  [/^#\/aula\/(.+)$/,         m => ecraPreparar(m[1])],
-  [/^#\/material\/(.+)$/,     m => ecraMaterial(m[1])],
-  [/^#\/sessao$/,             () => { const s = store.sessaoAtiva(); location.hash = s ? `#/sessao/${s.id}` : "#/aulas"; }],
-  [/^#\/sessao\/(.+)$/,       m => ecraSessao(m[1])],
-  [/^#\/pergunta\/(.+)$/,     m => ecraPergunta(m[1])],
-  [/^#\/confirmar\/(.+)$/,    m => ecraConfirmar(m[1])],
-  [/^#\/resumo\/(.+)$/,       m => ecraResumo(m[1])],
-  [/^#\/historico$/,          () => ecraHistorico()],
-  [/^#\/treino$/,             () => ecraTreino()],
-  [/^#\/config$/,             () => ecraConfig()]
+  [/^#\/aulas$/,            () => ecraAulas()],
+  [/^#\/aula\/(.+)$/,       m => ecraPreparar(m[1])],
+  [/^#\/material\/(.+)$/,   m => ecraMaterial(m[1])],
+  [/^#\/sessao$/,           () => { const s = store.sessaoAtiva(); location.hash = s ? `#/sessao/${s.id}` : "#/aulas"; }],
+  [/^#\/sessao\/(.+)$/,     m => ecraSessao(m[1])],
+  [/^#\/resumo\/(.+)$/,     m => ecraResumo(m[1])],
+  [/^#\/revisao\/(.+)$/,    m => ecraRevisao(m[1])],
+  [/^#\/historico$/,        () => ecraHistorico()],
+  [/^#\/config$/,           () => ecraConfig()]
 ];
 
 function encaminhar() {
   if (limpezaEcra) { try { limpezaEcra(); } catch (e) { console.error(e); } limpezaEcra = null; }
+  $$(".sheet-back").forEach(el => el.remove());
+  pararFala();
   const h = location.hash || "#/aulas";
   for (const [re, fn] of rotas) {
     const m = h.match(re);

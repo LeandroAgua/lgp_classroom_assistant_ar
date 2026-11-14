@@ -20,17 +20,22 @@ Isto não é uma maqueta clicável: a maior parte funciona mesmo.
 | Deteção de termos do glossário na legenda | **Real** — correspondência tolerante a erros (Levenshtein) |
 | Extração do glossário a partir de PDF | **Real** — pdf.js + IAG, ou heurística local sem chave |
 | Explicação de um termo técnico | **Real** — glossário em cache, ou IAG com indicação da origem |
-| Captação do gesto | **Real** — MediaPipe no dispositivo, 21 pontos por mão |
-| Classificação do gesto | **Real, mas vocabulário restrito** — k-NN sobre amostras recolhidas pelo utilizador |
+| Enquadramento da câmara para a pergunta | **Real** — a imagem não sai do dispositivo |
+| Reconhecimento de LGP | **Não implementado**, e a app di-lo ao utilizador. A pergunta é escrita |
 | Pergunta dita em voz alta | **Real** — síntese de voz pt-PT |
 | Resumo e ficha de revisão | **Real** com chave da IAG; heurística pobre sem ela |
 | Submissão pelo docente, histórico partilhado, contas | **Não implementado** — não há servidor |
 
 A app **funciona sem chave da IAG**. Cada funcionalidade que depende dela tem um
 caminho local que produz um resultado pior mas utilizável, e a interface diz
-qual dos dois está a ser usado. Há ainda um **modo de simulação** (botão ▷ na
-sessão) que alimenta a legenda a partir de um guião, para demonstrar o fluxo
-em dispositivos sem microfone.
+qual dos dois está a ser usado. Há ainda um **modo de simulação**, no ecrã de
+preparação da sessão, que alimenta a legenda a partir de um guião — serve para
+demonstrar o fluxo em dispositivos sem microfone, e para a defesa não depender
+de o reconhecimento correr bem à primeira.
+
+Cada termo do glossário leva o seu **grau de confiança** ao lado, na legenda e
+no ecrã de preparação. É o OBJ05 — tornar visível a incerteza do sistema — e é
+o que permite ao aluno saber onde não deve confiar.
 
 ---
 
@@ -39,8 +44,8 @@ em dispositivos sem microfone.
 ```
 web/          app completa, HTML/CSS/JS sem dependências de build
   js/asr.js       legendagem (Web Speech API ou ponte nativa)
-  js/glossary.js  normalização, Levenshtein, marcação de termos
-  js/lgp.js       MediaPipe + classificador k-NN
+  js/glossary.js  normalização, Levenshtein, marcação de termos e confiança
+  js/camera.js    enquadramento da câmara — sem reconhecimento, de propósito
   js/ai.js        chamadas à IAG, todas opcionais
 android/      invólucro WebView em Kotlin
   MainActivity.kt   WebView, permissões, seletor de ficheiros
@@ -108,8 +113,8 @@ numa aula de duas horas isso acontece dezenas de vezes.
 Tudo fica no dispositivo: aulas, transcrições, resumos e amostras de gestos em
 `localStorage`; nenhum servidor nosso recebe seja o que for.
 
-O vídeo da câmara **nunca sai do dispositivo** — o MediaPipe corre localmente e
-só a sequência de glosas avança. Não é guardado áudio nem vídeo em momento
+A imagem da câmara **nunca sai do dispositivo** e não é processada por nada:
+serve só para o aluno se enquadrar. Não é guardado áudio nem vídeo em momento
 nenhum. Com chave configurada, vai texto para a API da Gemini: o texto dos
 slides, o termo a explicar e a transcrição para o resumo.
 
@@ -128,11 +133,13 @@ entra depois, na correspondência tolerante: não evita que o reconhecedor erre 
 termo, mas recupera-o quando o erro é pequeno. É uma aproximação, não a
 arquitetura final.
 
-**Não existe modelo de LGP pronto a usar.** A literatura mostra a exatidão a cair
-com o tamanho do vocabulário — cerca de 94% com 20 gestos, cerca de 46% com 292.
-Por isso o vocabulário é restrito e recolhido pelo próprio utilizador: é o que
-permite apresentar um número honesto. Um modelo treinado com um só gestuante
-aprende essa pessoa, não a língua.
+**Não há reconhecimento de LGP, e isso é uma decisão.** Não existe modelo de LGP
+pronto a usar, e a literatura mostra a exatidão a cair com o tamanho do
+vocabulário — cerca de 94% com 20 gestos, cerca de 46% com 292. Um classificador
+treinado com um ou dois gestuantes aprende essas pessoas, não a língua. Prometer
+reconhecimento e entregar adivinhação seria pior do que não prometer nada, por
+isso a app mostra o enquadramento, diz com todas as letras que não reconhece o
+gesto, e o aluno escreve a pergunta. É também o que o protótipo faz.
 
 **Nenhum utilizador surdo validou isto.** É a limitação mais séria, e nenhum
 número medido com colegas ouvintes a substitui.

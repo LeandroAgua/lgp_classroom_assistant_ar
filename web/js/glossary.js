@@ -118,7 +118,17 @@ export function marcar(texto, indice) {
     const hit = marcaInicio.get(idxPalavra);
     if (hit) {
       const txt = palavras.slice(hit.inicio, hit.fim).join(" ");
-      out += `<span class="termo" role="button" tabindex="0" data-termo="${escapar(hit.termo.termo)}">${escapar(txt)}</span>`;
+      // A confiança vai colada ao termo, e não à linha: é o termo técnico que
+      // interessa ao aluno, e é sobre ele que o glossário atua (OBJ05).
+      //
+      // A pontuação final sai do realce. "inheritance." dentro da caixa
+      // amarela lê-se como se o ponto fizesse parte do termo.
+      const m = txt.match(/^(.*?)([.,;:!?)\]]*)$/s);
+      const nucleo = m[1] || txt, cauda = m[2] || "";
+      const c = hit.termo.confianca;
+      const selo = (typeof c === "number")
+        ? `<i class="conf${c < 0.9 ? " baixa" : ""}">${Math.round(c * 100)}%</i>` : "";
+      out += `<span class="termo" role="button" tabindex="0" data-termo="${escapar(hit.termo.termo)}">${escapar(nucleo)}${selo}</span>${escapar(cauda)}`;
     } else {
       out += escapar(b);
     }
