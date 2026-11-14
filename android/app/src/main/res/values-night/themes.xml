@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ConTexto" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@color/navy_dark</item>
+        <item name="android:navigationBarColor">#FF0E161E</item>
+        <item name="android:windowBackground">#FF0E161E</item>
+    </style>
+</resources>

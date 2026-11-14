@@ -1,0 +1,15 @@
+{
+  "name": "ConTexto — LGP Classroom Assistant",
+  "short_name": "ConTexto",
+  "description": "Legendagem da aula contextualizada pelo glossário dos materiais, consulta de termos técnicos e pergunta em LGP.",
+  "start_url": "./index.html#/aulas",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F7FAFD",
+  "theme_color": "#1F4E79",
+  "lang": "pt-PT",
+  "icons": [
+    { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
