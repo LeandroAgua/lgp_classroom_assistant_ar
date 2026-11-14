@@ -17,7 +17,7 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-14.9";
+export const VERSAO = "2026-11-14.10";
 
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -1094,6 +1094,7 @@ function ecraGestos() {
         </div>
       </div>
       <button class="btn" id="btnGravar" disabled>Gravar 20 amostras</button>
+      <a class="btn sec" href="#/importar">Importar de imagens, sem gravar</a>
 
       <div class="card" id="statsCard"></div>
 
@@ -1170,6 +1171,136 @@ function ecraGestos() {
   };
 
   limpezaEcra = () => captura.parar();
+}
+
+
+/* ───────────────── importar alfabeto de imagens ───────────────── */
+
+function ecraImportar() {
+  marcarTab("aulas");
+  topo({ kicker: "LGP", titulo: "Importar de imagens", voltar: "#/gestos" });
+
+  render(`
+    <div class="screen">
+      <p class="muted">Arrasta imagens das formas de mão e a app extrai os pontos — sem gravar nada. O nome do ficheiro vira a etiqueta: <code>A.png</code> fica <b>A</b>.</p>
+
+      <div class="notice warn">
+        <strong>Fotografias funcionam melhor do que desenhos</strong>
+        O MediaPipe foi treinado com fotografias de mãos reais. Em cartas de alfabeto desenhadas a traço, a deteção falha muitas vezes. Se falhar, fotografa as mãos a fazer cada letra — serve o telemóvel.
+      </div>
+
+      <div class="dropzone" id="dz">
+        <div style="font-size:30px;opacity:.5">&#8681;</div>
+        <b>Toca para escolher imagens</b>
+        <div class="muted small" style="margin-top:4px">Uma mão por imagem · PNG ou JPG · várias de uma vez</div>
+        <input type="file" id="fich" accept="image/*" multiple hidden>
+      </div>
+
+      <div class="field">
+        <label for="variantes">Variantes por imagem</label>
+        <input type="range" id="variantes" min="0" max="30" step="2" value="12">
+        <span class="muted small" id="varDesc">12 variantes — uma imagem por letra é pouco para k-NN, por isso gera-se ruído de deteção à volta de cada uma.</span>
+      </div>
+
+      <div id="res"></div>
+      <div class="card" id="statsCard"></div>
+    </div>`);
+
+  function pintarStats() {
+    const st = LGP.estatisticas();
+    $("#statsCard").innerHTML = `
+      <div class="row between" style="margin-bottom:10px">
+        <b>Gestos gravados</b>
+        ${st.classes ? `<span class="muted small">${st.classes} classes · ${st.total} amostras</span>` : ""}
+      </div>
+      ${st.classes
+        ? `<div class="chips">${st.etiquetas.map(([e, n]) =>
+            `<span class="chip">${escapar(e)} · ${n}<button class="x" data-apagar="${escapar(e)}" aria-label="Apagar ${escapar(e)}">×</button></span>`).join("")}</div>
+           <div class="muted small" style="margin-top:10px">Exatidão esperada com ${st.classes} classe${st.classes > 1 ? "s" : ""}: <b>${st.exatidaoEsperada}</b></div>`
+        : `<span class="muted small">Ainda não há nada importado.</span>`}`;
+    $$("[data-apagar]").forEach(b => b.onclick = () => { LGP.removerEtiqueta(b.dataset.apagar); pintarStats(); });
+  }
+  pintarStats();
+
+  $("#variantes").oninput = e => {
+    const n = Number(e.target.value);
+    $("#varDesc").textContent = n === 0
+      ? "Sem variantes — só a amostra original de cada imagem."
+      : `${n} variantes — uma imagem por letra é pouco para k-NN, por isso gera-se ruído de deteção à volta de cada uma.`;
+  };
+
+  const dz = $("#dz"), input = $("#fich");
+  dz.onclick = () => input.click();
+  dz.ondragover = e => { e.preventDefault(); dz.classList.add("over"); };
+  dz.ondragleave = () => dz.classList.remove("over");
+  dz.ondrop = e => { e.preventDefault(); dz.classList.remove("over"); processar([...e.dataTransfer.files]); };
+  input.onchange = () => processar([...input.files]);
+
+  async function processar(ficheiros) {
+    const imgs = ficheiros.filter(f => f.type.startsWith("image/"));
+    if (!imgs.length) return toast("Escolhe ficheiros de imagem.");
+
+    const res = $("#res");
+    res.innerHTML = `<div class="notice info"><strong>A carregar o detetor</strong>Primeira vez demora uns segundos.</div>`;
+    const c = await LGP.carregarDetetorImagem();
+    if (!c.ok) {
+      res.innerHTML = `<div class="notice danger"><strong>Não foi possível carregar o detetor</strong>${escapar(c.erro)}</div>`;
+      return;
+    }
+
+    res.innerHTML = `<div class="card"><b>Resultado</b><div id="linhas" style="margin-top:8px"></div></div>`;
+    const linhas = $("#linhas");
+    const nVar = Number($("#variantes").value);
+    let ok = 0, falhou = 0;
+
+    for (const f of imgs) {
+      const etiqueta = f.name.replace(/\.[^.]+$/, "").trim().toUpperCase().slice(0, 20);
+      const linha = document.createElement("div");
+      linha.className = "modelo-linha";
+      linha.innerHTML = `<span class="grow"><code>${escapar(f.name)}</code></span><span class="muted small">a analisar…</span>`;
+      linhas.appendChild(linha);
+
+      try {
+        const img = await carregarImagem(f);
+        const d = LGP.detetarEmImagem(img);
+        URL.revokeObjectURL(img.src);
+
+        if (!d) {
+          falhou++;
+          linha.innerHTML = `<span class="grow"><code class="falhou">${escapar(f.name)}</code></span><span class="conf baixa">sem mão detetada</span>`;
+          continue;
+        }
+
+        LGP.adicionarAmostra(etiqueta, d.vec);
+        let n = 1;
+        for (const v of LGP.variantesComRuido(d.vec, nVar)) { LGP.adicionarAmostra(etiqueta, v); n++; }
+        ok++;
+        linha.innerHTML = `<span class="grow"><code>${escapar(f.name)}</code> → <b>${escapar(etiqueta)}</b></span><span class="conf">${n} amostras</span>`;
+      } catch (e) {
+        falhou++;
+        linha.innerHTML = `<span class="grow"><code class="falhou">${escapar(f.name)}</code></span><span class="conf baixa">${escapar(e.message || "erro")}</span>`;
+      }
+      await new Promise(r => setTimeout(r, 0));   // deixa a interface respirar
+    }
+
+    pintarStats();
+    const resumo = document.createElement("div");
+    resumo.className = falhou && !ok ? "notice danger" : falhou ? "notice warn" : "notice ok";
+    resumo.style.marginTop = "12px";
+    resumo.innerHTML = ok
+      ? `<strong>${ok} imagem${ok > 1 ? "ns" : ""} importada${ok > 1 ? "s" : ""}</strong>${falhou ? `${falhou} sem mão detetada — se forem desenhos, tenta fotografias.` : "Podes já usar no ecrã de perguntar."}`
+      : `<strong>Nenhuma mão detetada</strong>Se as imagens são desenhos a traço, o MediaPipe não as reconhece. Fotografa as mãos a fazer cada letra.`;
+    $("#res").appendChild(resumo);
+  }
+
+  function carregarImagem(f) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("imagem ilegível"));
+      img.src = URL.createObjectURL(f);
+    });
+  }
 }
 
 /* ───────────────── definições ───────────────── */
@@ -1343,6 +1474,7 @@ const rotas = [
   [/^#\/revisao\/(.+)$/,    m => ecraRevisao(m[1])],
   [/^#\/historico$/,        () => ecraHistorico()],
   [/^#\/gestos$/,           () => ecraGestos()],
+  [/^#\/importar$/,         () => ecraImportar()],
   [/^#\/config$/,           () => ecraConfig()]
 ];
 

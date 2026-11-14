@@ -62,6 +62,73 @@ export async function carregarModelo() {
 
 export const modeloCarregado = () => !!detetor;
 
+/* ───────────────── deteção em imagem parada ─────────────────
+   Para importar o alfabeto a partir de fotografias ou cartas, em vez de
+   gravar. Precisa de um detetor em modo IMAGE: o de VIDEO exige marcas
+   temporais crescentes e recusa imagens soltas.
+
+   Aviso: o MediaPipe foi treinado com fotografias. Em desenhos de linha,
+   que é o que a maior parte das cartas de alfabeto são, a deteção falha
+   com frequência. Fotografias de mãos reais funcionam muito melhor. */
+
+let detetorImagem = null;
+
+export async function carregarDetetorImagem() {
+  if (detetorImagem) return { ok: true };
+  try {
+    if (!mod) mod = await import(/* @vite-ignore */ CDN);
+    const vision = await mod.FilesetResolver.forVisionTasks(CDN + "/wasm");
+    detetorImagem = await mod.HandLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: MODELO, delegate: "GPU" },
+      runningMode: "IMAGE",
+      numHands: 1,
+      // Limiares baixos: numa carta desenhada vale a pena arriscar a deteção
+      // e deixar a pessoa confirmar, em vez de recusar tudo em silêncio.
+      minHandDetectionConfidence: 0.2,
+      minHandPresenceConfidence: 0.2
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, erro: e.message || String(e) };
+  }
+}
+
+/** Deteta uma mão numa imagem já carregada. Devolve os pontos em bruto e o
+ *  vetor normalizado, ou null se não encontrar mão nenhuma. */
+export function detetarEmImagem(elementoImagem) {
+  if (!detetorImagem) return null;
+  const res = detetorImagem.detect(elementoImagem);
+  const lm = res?.landmarks?.[0];
+  if (!lm) return null;
+  return {
+    raw: lm,
+    vec: normalizarPontos(lm),
+    mao: (res.handedness?.[0]?.[0]?.categoryName || "Right").toLowerCase()
+  };
+}
+
+/* Uma imagem por letra dá uma amostra por classe, o que é pouco para k-NN.
+   Gerar variantes com ruído nos pontos simula a imprecisão da deteção e
+   torna o classificador tolerante a ela.
+
+   Note-se o que NÃO se ganha aqui: rodar, escalar ou deslocar não serve de
+   nada, porque a normalização remove exatamente isso. O único eixo de
+   variação que sobra é o ruído de deteção — e é esse que se imita. */
+export function variantesComRuido(vec, n = 12, sigma = 0.03) {
+  const saida = [];
+  for (let k = 0; k < n; k++) {
+    const v = new Float32Array(63);
+    for (let i = 0; i < 63; i++) {
+      // Box-Muller para ruído gaussiano
+      const u = Math.random() || 1e-9, w = Math.random();
+      const g = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * w);
+      v[i] = vec[i] + g * sigma;
+    }
+    saida.push(v);
+  }
+  return saida;
+}
+
 /* ───────────────── normalização ─────────────────
    Translação para o pulso, escala pela distância pulso→nó do médio, e
    rotação para a vertical. O que sobra é a forma da mão, independente de
