@@ -17,7 +17,17 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-14.10";
+export const VERSAO = "2026-11-14.11";
+
+/* O que está dentro da app para o ALUNO, e o que está lá para nós.
+   Um aluno surdo numa aula precisa de: ver as aulas, iniciar a sessão, ler
+   as legendas, tocar num termo, perguntar, e rever depois. Não precisa de
+   gravar gestos, importar imagens, escolher modelos de IAG nem inspecionar
+   extrações — isso é andaime de desenvolvimento, e andaime à vista é ruído
+   para quem só quer acompanhar a aula.
+
+   Liga-se em #/dev, e enquanto está ligado há um indicador permanente. */
+const modoDev = () => !!store.config().modoDev;
 
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -72,7 +82,7 @@ function ecraAulas() {
   marcarTab("aulas");
   topo({
     kicker: "Olá, Rita", titulo: "Próximas aulas",
-    direita: `<button class="icon-btn" id="btnCfg" aria-label="Definições" title="Definições">&#9881;</button>`
+    direita: modoDev() ? `<button class="icon-btn" id="btnCfg" aria-label="Definições" title="Definições">&#9881;</button>` : ""
   });
 
   const aulas = store.aulas();
@@ -101,12 +111,12 @@ function ecraAulas() {
         </button>`).join("") : `
         <div class="empty"><div class="big">&#9707;</div><p>Ainda não há aulas.</p></div>`}
 
-      <button class="btn sec" id="btnNova">+ Nova aula</button>
+      ${modoDev() ? `<button class="btn sec" id="btnNova">+ Nova aula</button>` : ""}
     </div>`);
 
   $$("[data-aula]").forEach(b => b.onclick = () => location.hash = `#/aula/${b.dataset.aula}`);
-  $("#btnCfg").onclick = () => location.hash = "#/config";
-  $("#btnNova").onclick = () => location.hash = "#/nova";
+  $("#btnCfg") && ($("#btnCfg").onclick = () => location.hash = "#/config");
+  $("#btnNova") && ($("#btnNova").onclick = () => location.hash = "#/nova");
 }
 
 /* ───────────────── nova aula ───────────────── */
@@ -240,6 +250,7 @@ async function ecraPreparar(id) {
         <span>${escapar(a.quando)}</span><span>sala ${escapar(a.sala)}</span><span>Doc. ${escapar(a.docente)}</span>
       </div>
 
+      ${modoDev() ? `
       <div class="card">
         <label class="switch-row" for="simToggle">
           <span class="grow">
@@ -251,7 +262,7 @@ async function ecraPreparar(id) {
           <input type="checkbox" id="simToggle" role="switch" ${cfg.simulacao ? "checked" : ""}>
           <span class="switch" aria-hidden="true"></span>
         </label>
-      </div>
+      </div>` : ""}
 
       <div id="verificacoes"></div>
 
@@ -272,7 +283,7 @@ async function ecraPreparar(id) {
           <div class="row" style="gap:12px;margin-top:10px">
             ${a.glossario.termos.length > 6
               ? `<button class="btn ghost sm" id="verTodos" style="padding-left:0">ver todos (${a.glossario.termos.length})</button>` : ""}
-            <a class="btn ghost sm" href="#/extracao/${a.id}" style="padding-left:0">como foi extraído</a>
+            ${modoDev() ? `<a class="btn ghost sm" href="#/extracao/${a.id}" style="padding-left:0">como foi extraído</a>` : ""}
           </div>
         </div>
         <button class="btn" id="btnIniciar">&#9654; Iniciar sessão</button>
@@ -300,13 +311,13 @@ async function ecraPreparar(id) {
       `}
     </div>`);
 
-  $("#simToggle").onchange = (e) => {
+  $("#simToggle") && ($("#simToggle").onchange = (e) => {
     store.guardarConfig({ simulacao: e.target.checked });
     $("#simDesc").textContent = e.target.checked
       ? "Ligado: legendas de exemplo, sem áudio nem vídeo reais."
       : "Desligado: usa microfone e ficheiros reais.";
     correrVerificacoes();
-  };
+  });
 
   // RF02 — verificação de microfone e rede antes de entrar na sessão.
   async function correrVerificacoes() {
@@ -519,7 +530,9 @@ function ecraSessao(sid) {
   marcarTab("sessao");
 
   const indice = indexar(a?.glossario?.termos || []);
-  const simular = !!store.config().simulacao;
+  // A simulação é para demonstrar sem microfone, não para um aluno a sério:
+  // fica presa ao modo de teste, mesmo que tenha ficado ligada na configuração.
+  const simular = modoDev() && !!store.config().simulacao;
 
   topo({
     kicker: `${a?.uc || ""} · Aula ${a?.numero || ""}`,
@@ -721,7 +734,9 @@ function abrirPergunta(s) {
   function passoCamara() {
     const st = LGP.estatisticas();
     const temGestos = st.classes > 0;
-    let modo = temGestos ? "gestos" : "asl";
+    // Fora do modo de teste nunca se cai no ASL: o alfabeto americano não
+    // tem utilidade nenhuma para um aluno surdo português.
+    let modo = (temGestos || !modoDev()) ? "gestos" : "asl";
     let sequencia = [];
     let soletrado = "";
 
@@ -740,14 +755,16 @@ function abrirPergunta(s) {
 
     function desenhar() {
       const asl = modo === "asl";
+      const tabs = modoDev();          // sem modo de teste não há escolha a fazer
 
       passo.innerHTML = `
         <div class="pq-topo">
           <h3>Perguntar</h3>
+          ${tabs ? `
           <div class="tabs compacto" role="tablist">
             <button role="tab" data-modo="gestos" aria-selected="${!asl}">Gestos${temGestos ? ` ${st.classes}` : ""}</button>
             <button role="tab" data-modo="asl" aria-selected="${asl}">ASL</button>
-          </div>
+          </div>` : ""}
         </div>
 
         ${asl ? `
@@ -760,7 +777,9 @@ function abrirPergunta(s) {
         : temGestos ? `
           <div class="aviso-linha plano">Reconhece só os ${st.classes} gesto${st.classes > 1 ? "s" : ""} que gravaste.</div>`
         : `
-          <div class="aviso-linha plano">Sem gestos gravados. Experimenta o alfabeto ASL, ou escreve.</div>`}
+          <div class="aviso-linha plano">${modoDev()
+            ? "Sem gestos gravados. Experimenta o alfabeto ASL, ou escreve."
+            : "A câmara não reconhece gestos. Escreve a pergunta antes de a dizer em voz alta."}</div>`}
 
         <div class="camera-wrap pq">
           <video id="cam" autoplay playsinline muted></video>
@@ -779,7 +798,7 @@ function abrirPergunta(s) {
           <button class="btn" id="btnEscrever">Continuar e escrever</button>
           <div class="pq-links">
             <button class="ligacao" id="btnCancelar">Cancelar</button>
-            ${temGestos ? "" : `<button class="ligacao" id="btnGravar">Gravar gestos de LGP</button>`}
+            ${!temGestos && modoDev() ? `<button class="ligacao" id="btnGravar">Gravar gestos de LGP</button>` : ""}
             <span class="muted">A imagem não sai do dispositivo</span>
           </div>
         </div>`;
@@ -1475,8 +1494,37 @@ const rotas = [
   [/^#\/historico$/,        () => ecraHistorico()],
   [/^#\/gestos$/,           () => ecraGestos()],
   [/^#\/importar$/,         () => ecraImportar()],
-  [/^#\/config$/,           () => ecraConfig()]
+  [/^#\/config$/,           () => ecraConfig()],
+  [/^#\/dev$/,              () => {
+    store.guardarConfig({ modoDev: true });
+    indicadorDev();
+    toast("Modo de teste ligado.");
+    location.hash = "#/config";
+  }]
 ];
+
+/* Rotas que só existem em modo de teste. Fora dele devolvem à lista de
+   aulas, para que um atalho antigo ou um recarregar não abra ferramentas. */
+const ROTAS_DEV = [/^#\/gestos/, /^#\/importar/, /^#\/extracao/, /^#\/nova/, /^#\/config/];
+
+function indicadorDev() {
+  const existe = $("#devChip");
+  if (!modoDev()) { existe && existe.remove(); return; }
+  if (existe) return;
+  const el = document.createElement("button");
+  el.id = "devChip";
+  el.innerHTML = `<span>modo de teste</span> <b>&times;</b>`;
+  el.title = "Sair do modo de teste";
+  el.onclick = () => {
+    store.guardarConfig({ modoDev: false });
+    indicadorDev();
+    // Mudar o hash para onde já se está não dispara hashchange: redesenhar
+    // à mão, senão as ferramentas ficavam à vista até à navegação seguinte.
+    if (location.hash === "#/aulas") encaminhar(); else location.hash = "#/aulas";
+    toast("Modo de teste desligado.");
+  };
+  document.body.appendChild(el);
+}
 
 function encaminhar() {
   if (limpezaEcra) { try { limpezaEcra(); } catch (e) { console.error(e); } limpezaEcra = null; }
@@ -1484,6 +1532,10 @@ function encaminhar() {
   document.body.classList.remove("com-pergunta");
   pararFala();
   const h = location.hash || "#/aulas";
+
+  if (!modoDev() && ROTAS_DEV.some(re => re.test(h))) { location.hash = "#/aulas"; return; }
+  indicadorDev();
+
   for (const [re, fn] of rotas) {
     const m = h.match(re);
     if (m) return fn(m);
