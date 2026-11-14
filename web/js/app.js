@@ -740,12 +740,13 @@ function ecraConfig() {
       <div class="field">
         <label for="modelo">Modelo</label>
         <div class="row" style="gap:8px">
-          <input id="modelo" class="grow" value="${escapar(c.modelo)}" placeholder="gemini-flash-latest" autocomplete="off" list="listaModelos">
+          <input id="modelo" class="grow" value="${escapar(c.modelo)}" placeholder="gemini-3.8-flash" autocomplete="off" list="listaModelos">
           <datalist id="listaModelos"></datalist>
           <button class="btn sec sm" id="procurar" style="flex:0 0 auto">Procurar</button>
         </div>
-        <span class="muted small">«Procurar» pergunta à API que modelos a tua chave consegue chamar.</span>
+        <span class="muted small">«Procurar» lista os modelos que a tua chave consegue chamar. «Testar todos» experimenta cada um e diz quais respondem agora.</span>
       </div>
+      <button class="btn sec sm" id="testarTodos" style="width:100%">Testar todos os modelos</button>
       <div id="modelos"></div>
 
       <div class="row" style="gap:10px">
@@ -763,7 +764,7 @@ function ecraConfig() {
     </div>`);
 
   $("#guardar").onclick = () => {
-    store.guardarConfig({ geminiKey: $("#key").value.trim(), modelo: $("#modelo").value.trim() || "gemini-flash-latest" });
+    store.guardarConfig({ geminiKey: $("#key").value.trim(), modelo: $("#modelo").value.trim() || "gemini-3.8-flash" });
     toast("Guardado.");
   };
 
@@ -794,13 +795,59 @@ function ecraConfig() {
       $("#modelos").innerHTML = `<div class="notice danger" style="margin:0"><strong>Não foi possível listar</strong>${escapar(e.message)}</div>`;
     }
   };
+  /* Testa cada modelo candidato com um pedido mínimo. Distingue o que
+     importa distinguir: 404 é um nome que não serve, 503 é um nome que
+     serve mas está cheio. Sem isto, ambos pareciam «não funciona». */
+  $("#testarTodos").onclick = async () => {
+    const chave = $("#key").value.trim();
+    if (!chave) return toast("Põe a chave primeiro.");
+    store.guardarConfig({ geminiKey: chave });
+
+    const escolhido = $("#modelo").value.trim();
+    const lista = [...new Set([escolhido, ...IA.ALTERNATIVAS].filter(Boolean))];
+
+    $("#modelos").innerHTML = `<div class="card"><b>A testar ${lista.length} modelos</b>
+      <div id="linhas" style="margin-top:10px"></div></div>`;
+
+    const linhas = $("#linhas");
+    for (const id of lista) {
+      const row = document.createElement("div");
+      row.className = "modelo-linha";
+      row.innerHTML = `<span class="grow"><code>${escapar(id)}</code></span><span class="muted small">a testar…</span>`;
+      linhas.appendChild(row);
+
+      const r = await IA.testarModelo(id);
+      if (!linhas.isConnected) return;               // o utilizador saiu do ecrã
+      row.innerHTML = r.ok
+        ? `<span class="grow"><code>${escapar(id)}</code></span>
+           <span class="conf">${r.ms} ms</span>
+           <button class="btn ghost sm" data-usar="${escapar(id)}" style="padding:2px 8px">usar</button>`
+        : `<span class="grow"><code class="falhou">${escapar(id)}</code></span>
+           <span class="conf baixa">${escapar(r.motivo)}</span>`;
+    }
+
+    $$("[data-usar]").forEach(b => b.onclick = () => {
+      $("#modelo").value = b.dataset.usar;
+      store.guardarConfig({ modelo: b.dataset.usar });
+      toast(b.dataset.usar + " escolhido.");
+    });
+  };
+
   $("#testar").onclick = async () => {
-    store.guardarConfig({ geminiKey: $("#key").value.trim(), modelo: $("#modelo").value.trim() || "gemini-flash-latest" });
+    store.guardarConfig({ geminiKey: $("#key").value.trim(), modelo: $("#modelo").value.trim() || "gemini-3.8-flash" });
     $("#res").innerHTML = `<div class="notice info">A testar…</div>`;
     const r = await IA.testarChave();
-    $("#res").innerHTML = r.ok
-      ? `<div class="notice ok"><strong>A chave funciona</strong></div>`
-      : `<div class="notice danger"><strong>Falhou</strong>${escapar(r.erro)}</div>`;
+    if (!r.ok) {
+      $("#res").innerHTML = `<div class="notice danger"><strong>Falhou</strong>${escapar(r.erro)}</div>`;
+      return;
+    }
+    // Dizer qual respondeu: se um modelo estiver sobrecarregado, a app desce
+    // para outro sozinha, e sem isto não haveria forma de perceber porquê.
+    const pedido = $("#modelo").value.trim();
+    const usado = IA.modeloEmUso;
+    $("#res").innerHTML = (usado && usado !== pedido)
+      ? `<div class="notice warn"><strong>A chave funciona, com outro modelo</strong>O <b>${escapar(pedido)}</b> não respondeu, por isso foi usado o <b>${escapar(usado)}</b>.</div>`
+      : `<div class="notice ok"><strong>A chave funciona</strong>Respondeu o ${escapar(usado || pedido)}.</div>`;
   };
   $("#apagar").onclick = () => {
     if (!confirm("Apagar aulas e sessões deste dispositivo?")) return;

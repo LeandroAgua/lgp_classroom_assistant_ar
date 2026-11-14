@@ -76,7 +76,7 @@ export const SEED = {
     }
   ],
   sessoes: [],
-  config: { geminiKey: "", modelo: "gemini-flash-latest", limiarConfianca: 0.9, simulacao: false, volume: 1 }
+  config: { geminiKey: "", modelo: "gemini-3.8-flash", limiarConfianca: 0.9, simulacao: false, volume: 1 }
 };
 
 /* Guião do modo de simulação: legendas de exemplo, sem áudio real. Serve para

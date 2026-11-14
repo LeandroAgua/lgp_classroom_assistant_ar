@@ -18,6 +18,38 @@ export function temChave() {
   return !!(store.config().geminiKey || "").trim();
 }
 
+/* Modelos de recurso, por ordem. Um 503 UNAVAILABLE não quer dizer que o
+   modelo não exista: quer dizer que está sobrecarregado naquele instante, o
+   que acontece com frequência nos modelos mais procurados. Repetir com recuo
+   resolve a maior parte dos casos; quando não resolve, vale mais descer para
+   um modelo menos concorrido do que falhar a meio de uma aula. */
+export const MODELO_OMISSAO = "gemini-3.8-flash";
+export const ALTERNATIVAS = [
+  "gemini-3.8-flash",
+  "gemini-flash-latest",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite"
+];
+
+const TRANSITORIO = new Set([429, 500, 502, 503, 504]);
+const espera = ms => new Promise(r => setTimeout(r, ms));
+
+/** O último modelo que respondeu, para a interface poder dizer qual foi. */
+export let modeloEmUso = null;
+
+async function chamar(modelo, corpo, chave) {
+  const url = `${RAIZ}/${encodeURIComponent(modelo)}:generateContent?key=${encodeURIComponent(chave)}`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo)
+  });
+  if (r.ok) return { ok: true, dados: await r.json() };
+  const t = await r.text().catch(() => "");
+  return { ok: false, estado: r.status, texto: t.slice(0, 200) };
+}
+
 async function pedir(prompt, { json = true, maxTokens = 2048, temperatura = 0.2 } = {}) {
   const cfg = store.config();
   const chave = (cfg.geminiKey || "").trim();
@@ -32,28 +64,48 @@ async function pedir(prompt, { json = true, maxTokens = 2048, temperatura = 0.2 
     }
   };
 
-  const url = `${RAIZ}/${encodeURIComponent(cfg.modelo || "gemini-flash-latest")}:generateContent?key=${encodeURIComponent(chave)}`;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(corpo)
-  });
+  // O modelo escolhido primeiro, depois os de recurso que ainda não foram tentados.
+  const escolhido = (cfg.modelo || MODELO_OMISSAO).trim();
+  const candidatos = [escolhido, ...ALTERNATIVAS.filter(m => m !== escolhido)];
 
-  if (!r.ok) {
-    const t = await r.text().catch(() => "");
-    throw new Error(`IAG ${r.status}: ${t.slice(0, 180)}`);
+  let ultimoErro = null;
+
+  for (const modelo of candidatos) {
+    for (let tentativa = 0; tentativa < 3; tentativa++) {
+      const r = await chamar(modelo, corpo, chave);
+
+      if (r.ok) {
+        modeloEmUso = modelo;
+        const texto = r.dados?.candidates?.[0]?.content?.parts?.map(p => p.text).join("") || "";
+        if (!texto) throw new Error("resposta-vazia");
+        if (!json) return texto;
+        try {
+          return JSON.parse(texto);
+        } catch {
+          const m = texto.match(/[[{][\s\S]*[\]}]/);   // às vezes vem embrulhado em ```
+          if (m) return JSON.parse(m[0]);
+          throw new Error("json-invalido");
+        }
+      }
+
+      ultimoErro = new Error(`IAG ${r.estado}: ${r.texto}`);
+
+      // Chave inválida ou sem permissão: repetir não ajuda, e trocar de
+      // modelo também não. Falhar já, com a mensagem da API.
+      if (r.estado === 400 || r.estado === 401 || r.estado === 403) throw ultimoErro;
+
+      // Modelo inexistente para esta chave: passar ao seguinte sem esperar.
+      if (r.estado === 404) break;
+
+      if (!TRANSITORIO.has(r.estado)) throw ultimoErro;
+
+      // Recuo exponencial com um pouco de aleatoriedade, para que vários
+      // pedidos em curso não voltem todos ao mesmo tempo.
+      await espera((700 * Math.pow(2, tentativa)) + Math.random() * 400);
+    }
   }
-  const d = await r.json();
-  const texto = d?.candidates?.[0]?.content?.parts?.map(p => p.text).join("") || "";
-  if (!texto) throw new Error("resposta-vazia");
-  if (!json) return texto;
-  try {
-    return JSON.parse(texto);
-  } catch {
-    const m = texto.match(/[[{][\s\S]*[\]}]/);     // às vezes vem embrulhado em ```
-    if (m) return JSON.parse(m[0]);
-    throw new Error("json-invalido");
-  }
+
+  throw ultimoErro || new Error("IAG indisponível");
 }
 
 /* ───────────────── glossário (UC07 · RF18) ───────────────── */
@@ -220,6 +272,42 @@ export async function listarModelos() {
     }))
     .filter(m => m.id)
     .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * Testa um modelo com um pedido mínimo e devolve o que aconteceu.
+ *
+ * Distingue o que o utilizador precisa de distinguir: 404 quer dizer que
+ * aquele nome não existe para esta chave, e deve ser abandonado; 503 quer
+ * dizer que existe mas está sobrecarregado, e vale a pena voltar mais tarde.
+ */
+export async function testarModelo(id) {
+  const chave = (store.config().geminiKey || "").trim();
+  if (!chave) return { id, ok: false, estado: 0, motivo: "sem chave" };
+
+  const corpo = {
+    contents: [{ parts: [{ text: 'Responde apenas com JSON: {"ok":true}' }] }],
+    generationConfig: { temperature: 0, maxOutputTokens: 20, responseMimeType: "application/json" }
+  };
+
+  const t0 = performance.now();
+  try {
+    const r = await chamar(id, corpo, chave);
+    const ms = Math.round(performance.now() - t0);
+    if (r.ok) return { id, ok: true, estado: 200, ms };
+    return {
+      id, ok: false, estado: r.estado, ms,
+      motivo: ({
+        404: "não existe para esta chave",
+        503: "sobrecarregado — tenta mais tarde",
+        429: "limite de pedidos atingido",
+        403: "sem permissão",
+        400: "pedido recusado"
+      })[r.estado] || `erro ${r.estado}`
+    };
+  } catch (e) {
+    return { id, ok: false, estado: 0, motivo: e.message || "falha de rede" };
+  }
 }
 
 export async function testarChave() {
