@@ -10,9 +10,6 @@ alta à turma, e no fim recebe um resumo e uma ficha de revisão.
 Cada termo do glossário aparece com o seu grau de confiança, para que o aluno
 saiba onde não deve confiar na transcrição.
 
-**Projeto académico** — Análise de Requisitos, Mestrado em Engenharia
-Informática, ISEC / Politécnico de Coimbra. Grupo 1 · Leandro D'Água, Hugo Gil.
-
 ## Estrutura
 
 ```
