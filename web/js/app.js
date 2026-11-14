@@ -12,11 +12,12 @@ import * as IA from "./ai.js";
 import { criarCamara } from "./camera.js";
 import { AMOSTRAS, amostra } from "./amostras.js";
 import * as LGP from "./lgp.js";
+import * as IAASL from "./asl.js";
 
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-14.6";
+export const VERSAO = "2026-11-14.7";
 
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -700,59 +701,127 @@ function abrirPergunta(s) {
 
   const fechar = () => { if (camara) camara.parar(); back.remove(); };
   back.onclick = e => { if (e.target === back) fechar(); };
+  /* E06 — enquadramento e reconhecimento.
 
-  /* E06 — enquadramento e, se houver gestos gravados, reconhecimento.
-     Sem gestos gravados a app não finge: diz que não reconhece e manda
-     escrever. Com gestos gravados reconhece só esses, e di-lo também. */
+     Dois modos, e a diferença entre eles é dita ao utilizador:
+       · gestos gravados — k-NN sobre as amostras dele (lgp.js)
+       · alfabeto ASL    — modelo pré-treinado, PROVISÓRIO e NÃO é LGP (asl.js)
+
+     Sem nenhum dos dois a app não finge: diz que não reconhece e manda
+     escrever. E em qualquer dos casos a pergunta é sempre escrita e
+     confirmada antes de ser dita em voz alta (RF22). */
   function passoCamara() {
     const st = LGP.estatisticas();
-    const reconhece = st.classes > 0;
-    const sequencia = [];
+    const temGestos = st.classes > 0;
+    let modo = temGestos ? "gestos" : "asl";
+    let sequencia = [];
+    let soletrado = "";
 
-    passo.innerHTML = `
-      <h3>Faz a tua pergunta em LGP</h3>
-      ${reconhece ? `
-        <div class="notice info" style="margin:10px 0 12px">
-          <strong>Reconhece ${st.classes} gesto${st.classes > 1 ? "s" : ""} que gravaste</strong>
-          Tudo o resto não é reconhecido. Podes escrever a qualquer momento.
-        </div>` : `
-        <div class="notice warn" style="margin:10px 0 12px">
-          A câmara não reconhece LGP. Escreve a pergunta antes de a dizer em voz alta.
-        </div>`}
+    desenhar();
 
-      <div class="camera-wrap">
-        <video id="cam" autoplay playsinline muted></video>
-        ${reconhece ? `<canvas id="pontos"></canvas><div class="gesto-chip" id="chip" hidden>—</div>` : ""}
-        <div class="camera-hint" id="hint">A pedir acesso à câmara…</div>
-      </div>
-
-      ${reconhece ? `
-        <div style="margin-top:12px">
-          <div class="row between" style="margin-bottom:6px">
-            <b class="small">Gestos reconhecidos</b>
-            <button class="btn ghost sm" id="btnLimpar" style="padding:2px 0">limpar</button>
-          </div>
-          <div class="glosas" id="glosas"><span class="muted small">Faz um gesto e mantém a mão parada.</span></div>
-        </div>` : ""}
-
-      <p class="muted small" style="margin-top:10px">A imagem fica no teu dispositivo e não é gravada.</p>
-      <button class="btn" id="btnEscrever" style="margin-top:6px">${reconhece ? "Continuar e escrever" : "Escrever a pergunta"}</button>
-      ${reconhece ? "" : `<button class="btn ghost" id="btnGravar">Gravar gestos primeiro</button>`}
-      <button class="btn ghost" id="btnCancelar">Cancelar</button>`;
-
-    function pintarSequencia() {
-      const el = $("#glosas", back);
-      if (!el) return;
-      el.innerHTML = sequencia.length
-        ? sequencia.map(g => `<span class="glosa">${escapar(g)}</span>`).join("")
-        : `<span class="muted small">Faz um gesto e mantém a mão parada.</span>`;
+    function textoRecolhido() {
+      return modo === "asl" ? soletrado : sequencia.join(" ");
     }
 
-    if (reconhece) {
-      // Suavizador: só aceita um gesto quando dez frames seguidos concordam.
-      // Serve de confirmação e, de caminho, de segmentação — enquanto a mão
-      // se move entre gestos a janela fica dividida e nada é emitido.
+    function trocarModo(m) {
+      if (m === modo) return;
+      if (camara) camara.parar();
+      modo = m;
+      desenhar();
+    }
+
+    function desenhar() {
+      const asl = modo === "asl";
+
+      passo.innerHTML = `
+        <h3>Faz a tua pergunta em LGP</h3>
+
+        <div class="tabs" style="margin:12px 0 10px">
+          <button role="tab" data-modo="gestos" aria-selected="${!asl}">Gestos gravados${temGestos ? ` (${st.classes})` : ""}</button>
+          <button role="tab" data-modo="asl" aria-selected="${asl}">Alfabeto ASL</button>
+        </div>
+
+        ${asl ? `
+          <div class="notice warn" style="margin:0 0 12px">
+            <strong>Isto é o alfabeto ASL, não é LGP</strong>
+            Não existe modelo público do alfabeto da LGP. Está aqui para demonstrar a cadeia completa — câmara, pontos da mão, classificador, letra. 24 letras: o J e o Z precisam de movimento e ficam de fora.
+          </div>`
+        : temGestos ? `
+          <div class="notice info" style="margin:0 0 12px">
+            <strong>Reconhece ${st.classes} gesto${st.classes > 1 ? "s" : ""} que gravaste</strong>
+            Tudo o resto não é reconhecido. Podes escrever a qualquer momento.
+          </div>`
+        : `
+          <div class="notice warn" style="margin:0 0 12px">
+            Ainda não gravaste gestos. Usa o alfabeto ASL para ver a cadeia a funcionar, ou escreve a pergunta.
+          </div>`}
+
+        <div class="camera-wrap">
+          <video id="cam" autoplay playsinline muted></video>
+          <canvas id="pontos"></canvas>
+          <div class="gesto-chip" id="chip" hidden>—</div>
+          <div class="camera-hint" id="hint">A pedir acesso à câmara…</div>
+        </div>
+
+        <div style="margin-top:12px">
+          <div class="row between" style="margin-bottom:6px">
+            <b class="small">${asl ? "Letras soletradas" : "Gestos reconhecidos"}</b>
+            <span class="row" style="gap:10px">
+              ${asl ? `<button class="btn ghost sm" id="btnEspaco" style="padding:2px 0">espaço</button>
+                       <button class="btn ghost sm" id="btnApagar" style="padding:2px 0">apagar</button>` : ""}
+              <button class="btn ghost sm" id="btnLimpar" style="padding:2px 0">limpar</button>
+            </span>
+          </div>
+          <div class="glosas" id="glosas"></div>
+        </div>
+
+        <p class="muted small" style="margin-top:10px">A imagem fica no teu dispositivo e não é gravada.</p>
+        <button class="btn" id="btnEscrever" style="margin-top:6px">Continuar e escrever</button>
+        ${temGestos ? "" : `<button class="btn ghost" id="btnGravar">Gravar gestos de LGP</button>`}
+        <button class="btn ghost" id="btnCancelar">Cancelar</button>`;
+
+      $$("[data-modo]", back).forEach(b => b.onclick = () => trocarModo(b.dataset.modo));
+      pintar();
+      arrancarCamara();
+
+      $("#btnLimpar", back).onclick = () => { sequencia = []; soletrado = ""; pintar(); };
+      if (asl) {
+        $("#btnEspaco", back).onclick = () => { soletrado += " "; pintar(); };
+        $("#btnApagar", back).onclick = () => { soletrado = soletrado.slice(0, -1); pintar(); };
+      }
+      $("#btnGravar", back) && ($("#btnGravar", back).onclick = () => { if (camara) camara.parar(); fechar(); location.hash = "#/gestos"; });
+      $("#btnEscrever", back).onclick = () => { if (camara) camara.parar(); passoEscrever(textoRecolhido(), modo); };
+      $("#btnCancelar", back).onclick = fechar;
+    }
+
+    function pintar() {
+      const el = $("#glosas", back);
+      if (!el) return;
+      if (modo === "asl") {
+        el.innerHTML = soletrado
+          ? `<span style="font-size:22px;font-weight:600;letter-spacing:.08em">${escapar(soletrado)}</span>`
+          : `<span class="muted small">Faz uma letra e mantém a mão parada.</span>`;
+      } else {
+        el.innerHTML = sequencia.length
+          ? sequencia.map(g => `<span class="glosa">${escapar(g)}</span>`).join("")
+          : `<span class="muted small">Faz um gesto e mantém a mão parada.</span>`;
+      }
+    }
+
+    async function arrancarCamara() {
+      // Suavizador: só aceita quando dez frames seguidos concordam. Serve de
+      // confirmação e, de caminho, de segmentação — enquanto a mão se move
+      // entre gestos a janela fica dividida e nada é emitido.
       const suave = LGP.criarSuavizador({ janela: 10, limiar: 0.6 });
+
+      if (modo === "asl") {
+        const c = await IAASL.carregarModeloASL();
+        if (!c.ok) {
+          const h = $("#hint", back);
+          if (h) h.textContent = "Não foi possível carregar o modelo do alfabeto: " + c.erro;
+          return;
+        }
+      }
 
       camara = LGP.criarCaptura({
         video: $("#cam", back),
@@ -760,16 +829,23 @@ function abrirPergunta(s) {
         onResultado: (r) => {
           const chip = $("#chip", back);
           if (!chip) return;
-          const s = suave.empurrar(r ? r.previsao : null);
-          if (!r) { chip.hidden = true; return; }
+          if (!r) { chip.hidden = true; suave.empurrar(null); return; }
+
+          const previsao = modo === "asl"
+            ? IAASL.classificarASL(r.raw, { largura: r.largura, altura: r.altura, mao: r.mao })
+            : r.previsao;
+
+          const s = suave.empurrar(previsao);
           chip.hidden = false;
           chip.textContent = s.etiqueta
             ? `${s.etiqueta} · ${Math.round(s.confianca * 100)}%`
             : "mão detetada";
+
           if (s.pronto && s.novo) {
-            sequencia.push(s.etiqueta);
+            if (modo === "asl") soletrado += s.etiqueta;
+            else sequencia.push(s.etiqueta);
             suave.confirmar(s.etiqueta);
-            pintarSequencia();
+            pintar();
           }
         },
         onErro: (e) => {
@@ -779,39 +855,27 @@ function abrirPergunta(s) {
             : "Não foi possível abrir a câmara. Escreve a pergunta.";
         }
       });
-      $("#btnLimpar", back).onclick = () => { sequencia.length = 0; suave.limpar(); pintarSequencia(); };
-    } else {
-      camara = criarCamara({
-        video: $("#cam", back),
-        onErro: () => {
-          const h = $("#hint", back);
-          if (h) h.textContent = "Não foi possível abrir a câmara. Verifica as permissões ou escreve a pergunta.";
-        }
-      });
-      $("#btnGravar", back).onclick = () => { camara.parar(); fechar(); location.hash = "#/gestos"; };
-    }
 
-    camara.iniciar().then(ok => {
+      const ok = await camara.iniciar();
       const h = $("#hint", back);
-      if (ok && h) h.textContent = reconhece ? "Mantém o gesto parado até ser aceite." : "Enquadra-te dentro do rectângulo.";
-    });
-
-    $("#btnEscrever", back).onclick = () => { camara.parar(); passoEscrever(sequencia); };
-    $("#btnCancelar", back).onclick = fechar;
+      if (ok && h) h.textContent = "Mantém a mão parada até ser aceite.";
+    }
   }
 
+
   /* E07 — confirmar e dizer */
-  function passoEscrever(sequencia = []) {
+  function passoEscrever(recolhido = "", modo = "gestos") {
     const vol = store.config().volume ?? 1;
+    const temRecolha = !!(recolhido || "").trim();
     passo.innerHTML = `
       <h3>Escrever a pergunta</h3>
-      ${sequencia.length ? `
+      ${temRecolha ? `
         <div style="margin-top:10px">
-          <div class="small muted" style="margin-bottom:6px">gestos reconhecidos</div>
-          <div class="glosas">${sequencia.map(g => `<span class="glosa">${escapar(g)}</span>`).join("")}</div>
-          <div class="muted small" style="margin-top:8px">Os gestos são uma pista, não uma tradução. Escreve a pergunta em português.</div>
+          <div class="small muted" style="margin-bottom:6px">${modo === "asl" ? "letras soletradas (ASL)" : "gestos reconhecidos"}</div>
+          <div class="glosas"><span style="font-size:19px;font-weight:600;letter-spacing:.06em">${escapar(recolhido)}</span></div>
+          <div class="muted small" style="margin-top:8px">É uma pista, não uma tradução. Escreve a pergunta em português.</div>
         </div>` : ""}
-      <textarea id="txtPergunta" class="pergunta-box" style="margin-top:12px" placeholder="Escreve aqui a tua pergunta…" aria-label="Pergunta"></textarea>
+      <textarea id="txtPergunta" class="pergunta-box" style="margin-top:12px" placeholder="Escreve aqui a tua pergunta…" aria-label="Pergunta">${modo === "asl" && temRecolha ? escapar(recolhido.trim()) : ""}</textarea>
       <div class="notice warn" style="margin:14px 0 12px">
         Isto vai ser dito em voz alta na sala. Confirma antes de enviar.
       </div>

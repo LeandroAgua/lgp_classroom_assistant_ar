@@ -243,7 +243,18 @@ export function criarCaptura({ video, canvas, onResultado, onErro }) {
         }
         if (maos.length) {
           const vec = normalizarPontos(maos[0]);
-          onResultado && onResultado({ vec, previsao: classificar(vec) });
+          // Os landmarks em bruto, a lateralidade e o tamanho do frame seguem
+          // também: o modelo do alfabeto ASL tem a sua própria normalização,
+          // diferente desta, e precisa deles. Ver asl.js.
+          const cat = res.handedness?.[0]?.[0]?.categoryName || "Right";
+          onResultado && onResultado({
+            vec,
+            previsao: classificar(vec),
+            raw: maos[0],
+            mao: cat.toLowerCase(),
+            largura: video.videoWidth,
+            altura: video.videoHeight
+          });
         } else {
           onResultado && onResultado(null);
         }
