@@ -40,11 +40,23 @@ export let modeloEmUso = null;
 
 async function chamar(modelo, corpo, chave) {
   const url = `${RAIZ}/${encodeURIComponent(modelo)}:generateContent?key=${encodeURIComponent(chave)}`;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(corpo)
-  });
+  let r;
+  try {
+    r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo)
+    });
+  } catch (e) {
+    // O pedido não chegou a ter resposta: sem rede, bloqueado por CORS, ou
+    // cortado. "Failed to fetch" sozinho não diz nada a quem usa a app.
+    return {
+      ok: false, estado: 0,
+      texto: "o pedido não chegou ao servidor — verifica a ligação à Internet "
+           + "e se a página está a ser servida (http://localhost, não file://). "
+           + `Detalhe do browser: ${e.message || e}`
+    };
+  }
   if (r.ok) return { ok: true, dados: await r.json() };
   const t = await r.text().catch(() => "");
   return { ok: false, estado: r.status, texto: t.slice(0, 200) };

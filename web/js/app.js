@@ -11,6 +11,11 @@ import { falar, parar as pararFala, ttsDisponivel } from "./tts.js";
 import * as IA from "./ai.js";
 import { criarCamara } from "./camera.js";
 
+/* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
+   "estarei a correr o código novo?" — que é a primeira coisa a confirmar
+   quando um botão não faz nada. Aparece no fundo das Definições. */
+export const VERSAO = "2026-11-14.3";
+
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const app = $("#app");
@@ -761,7 +766,24 @@ function ecraConfig() {
       </div>
 
       <button class="btn ghost" id="apagar">Apagar todos os dados locais</button>
+
+      <div class="muted small" style="text-align:center;padding-top:4px">
+        ConTexto · versão <b>${VERSAO}</b><br>
+        <span id="diag"></span>
+      </div>
     </div>`);
+
+  // Diagnóstico de uma linha: responde ao que costuma estar errado quando
+  // "não acontece nada" — contexto inseguro, sem rede, sem chave.
+  (function diagnostico() {
+    const d = $("#diag");
+    if (!d) return;
+    const partes = [];
+    partes.push(window.isSecureContext ? "contexto seguro ✓" : "contexto INSEGURO ✗");
+    partes.push(navigator.onLine === false ? "sem rede ✗" : "rede ✓");
+    partes.push(store.config().geminiKey ? "chave guardada ✓" : "sem chave ✗");
+    d.textContent = partes.join(" · ");
+  })();
 
   $("#guardar").onclick = () => {
     store.guardarConfig({ geminiKey: $("#key").value.trim(), modelo: $("#modelo").value.trim() || "gemini-3.8-flash" });
