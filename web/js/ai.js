@@ -10,7 +10,7 @@
    que é também onde entraria o `custom_vocabulary` do reconhecimento de fala. */
 
 import { store } from "./store.js";
-import { extrairTermosLocal } from "./glossary.js";
+import { extrairTermosLocal, contarOcorrencias } from "./glossary.js";
 
 const RAIZ = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -122,42 +122,89 @@ async function pedir(prompt, { json = true, maxTokens = 2048, temperatura = 0.2 
 
 /* ───────────────── glossário (UC07 · RF18) ───────────────── */
 
-export async function gerarGlossario(textoMaterial, { nomeFicheiro = "" } = {}) {
-  const recorte = textoMaterial.slice(0, 60000);
-  if (!temChave()) {
-    return {
-      termos: extrairTermosLocal(recorte, { max: 24 }),
-      origem: "heurística local (sem chave da IAG)"
-    };
-  }
+export function montarPromptGlossario(recorte, nomeFicheiro = "") {
+  return `És um assistente que prepara material de apoio para um estudante surdo numa aula universitária em Portugal.
 
-  const prompt = `És um assistente que prepara material de apoio para um estudante surdo numa aula universitária em Portugal.
-
-A partir do texto dos slides abaixo, identifica a TERMINOLOGIA TÉCNICA DA DISCIPLINA — não linguagem corrente, não palavras comuns, não nomes de pessoas.
+A partir do texto dos slides abaixo, identifica a TERMINOLOGIA TÉCNICA DA DISCIPLINA — não linguagem corrente, não palavras comuns, não nomes de pessoas, não nomes de docentes.
 
 Para cada termo devolve:
 - "termo": o termo tal como aparece no material
 - "explicacao": uma explicação curta (máx. 2 frases) em português europeu, em linguagem simples, baseada APENAS no que o material diz
-- "slide": o número do slide ou secção onde aparece, se for identificável; caso contrário null
+- "slide": o número do slide onde o termo é definido, se for identificável pelos marcadores [slide N]; caso contrário null
+- "confianca": entre 0 e 1, o quanto tens a certeza de que isto é terminologia própria desta disciplina e não linguagem corrente
 
 Se um termo for polissémico, desambigua-o no sentido usado nesta disciplina.
 Devolve no máximo 40 termos, ordenados pela importância para a aula.
 
-Responde apenas com JSON: {"termos":[{"termo":"...","explicacao":"...","slide":12}]}
+Responde apenas com JSON: {"termos":[{"termo":"...","explicacao":"...","slide":12,"confianca":0.95}]}
 
 MATERIAL (${nomeFicheiro}):
 """
 ${recorte}
 """`;
+}
 
+/**
+ * Extrai o glossário do material.
+ *
+ * Devolve também um `diagnostico`: que caminho correu, o prompt enviado, a
+ * resposta em bruto e o tempo. Não é instrumentação por desporto — é o que
+ * permite mostrar no relatório COMO o glossário é gerado, em vez de afirmar
+ * que é gerado. E quando a extração falha, é por aqui que se vê porquê.
+ */
+export async function gerarGlossario(textoMaterial, { nomeFicheiro = "" } = {}) {
+  const recorte = (textoMaterial || "").slice(0, 60000);
+  const t0 = performance.now();
+
+  if (!temChave()) {
+    const termos = extrairTermosLocal(recorte, { max: 24 }).map(t => ({
+      ...t,
+      ocorrencias: contarOcorrencias(recorte, t.termo),
+      confianca: null
+    }));
+    return {
+      termos,
+      origem: "heurística local (sem chave da IAG)",
+      diagnostico: {
+        caminho: "heurística local",
+        porque: "não há chave da IAG configurada",
+        prompt: null, respostaBruta: null,
+        ms: Math.round(performance.now() - t0),
+        caracteres: recorte.length
+      }
+    };
+  }
+
+  const prompt = montarPromptGlossario(recorte, nomeFicheiro);
   const d = await pedir(prompt, { maxTokens: 4096 });
-  const termos = (d.termos || []).filter(t => t && t.termo).map(t => ({
-    termo: String(t.termo).trim(),
-    explicacao: String(t.explicacao || "").trim(),
-    slide: Number.isFinite(t.slide) ? t.slide : null,
-    origem: nomeFicheiro || "material da aula"
-  }));
-  return { termos, origem: nomeFicheiro || "material da aula" };
+
+  const termos = (d.termos || []).filter(t => t && t.termo).map(t => {
+    const termo = String(t.termo).trim();
+    return {
+      termo,
+      explicacao: String(t.explicacao || "").trim(),
+      slide: Number.isFinite(t.slide) ? t.slide : null,
+      confianca: (typeof t.confianca === "number" && t.confianca >= 0 && t.confianca <= 1)
+        ? t.confianca : null,
+      // Contagem feita localmente, sobre o texto: é uma medida objetiva, ao
+      // contrário da confiança, que é o modelo a avaliar-se a si próprio.
+      ocorrencias: contarOcorrencias(recorte, termo),
+      origem: nomeFicheiro || "material da aula"
+    };
+  });
+
+  return {
+    termos,
+    origem: nomeFicheiro || "material da aula",
+    diagnostico: {
+      caminho: "IAG",
+      modelo: modeloEmUso,
+      prompt,
+      respostaBruta: JSON.stringify(d, null, 2),
+      ms: Math.round(performance.now() - t0),
+      caracteres: recorte.length
+    }
+  };
 }
 
 /* ───────────────── significado do termo (UC09 · RF15) ───────────────── */

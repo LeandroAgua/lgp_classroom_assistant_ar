@@ -136,6 +136,21 @@ export function marcar(texto, indice) {
   return out;
 }
 
+/** Quantas vezes o termo aparece no material. Medida objetiva, ao contrário
+ *  da confiança que o modelo atribui a si próprio. Compara formas
+ *  normalizadas, por isso apanha variações de acento e caixa. */
+export function contarOcorrencias(texto, termo) {
+  const alvo = normalizar(termo);
+  if (!alvo) return 0;
+  const n = alvo.split(" ").length;
+  const toks = normalizar(texto).split(" ");
+  let c = 0;
+  for (let i = 0; i + n <= toks.length; i++) {
+    if (toks.slice(i, i + n).join(" ") === alvo) c++;
+  }
+  return c;
+}
+
 export function escapar(s) {
   return String(s).replace(/[&<>"']/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -155,7 +170,20 @@ poder dever ir vir dar ver saber querer dizer pode deve vai vem da ve sabe quer 
 mais menos muito pouco todo toda todos todas outro outra outros outras mesmo mesma cada qualquer algum alguma nenhum
 nao sim tambem ja ainda sempre nunca talvez entao assim ainda bem mal agora hoje ontem amanha aqui ali la lado
 exemplo exemplos caso casos forma formas parte partes vez vezes tipo tipos modo modos coisa coisas aula aulas slide
-slides capitulo seccao pagina figura tabela nota notas introducao conclusao resumo objetivo objetivos`.split(/\s+/));
+slides capitulo seccao pagina figura tabela nota notas introducao conclusao resumo objetivo objetivos
+chama chamam chamamos chamado chamada permite permitem define definem define-se existe existem usamos usado usada
+usar utiliza utilizar acontece acontecem significa quando onde apenas tambem entao assim depois antes durante
+primeiro segundo terceiro seguinte seguintes anterior anteriores proprio propria mesmo mesma outro outra
+conjunto conjuntos valor valores numero numeros nome nomes lista listas grupo grupos nivel niveis ponto pontos
+revisao docente professor universidade licenciatura mestrado semestre
+garante garantem determina determinam recebe recebem envia enviam aparece aparecem obtem contem
+herda herdam implementa implementam executa executam devolve devolvem muda mudam parte partem`.split(/\s+/));
+
+/* Verbos com pronome clítico — "chama-se", "usa-se", "faz-se". Aparecem
+   repetidos em qualquer texto expositivo português e não são terminologia
+   de disciplina nenhuma. Filtrá-los por forma, e não por lista, apanha-os
+   todos sem ter de os enumerar. */
+const CLITICO = /-(se|me|te|lhe|lhes|nos|vos|los?|las?|nas?)$/;
 
 export function extrairTermosLocal(texto, { max = 30 } = {}) {
   const limpo = normalizar(texto);
@@ -167,7 +195,10 @@ export function extrairTermosLocal(texto, { max = 30 } = {}) {
   const brutos = (texto || "").split(/[^\p{L}\p{N}-]+/u).filter(Boolean);
   for (const b of brutos) {
     const n = normalizar(b);
-    if (n.length < 5 || CORRENTES.has(n) || /^\d+$/.test(n)) continue;
+    if (n.length < 5 || CORRENTES.has(n) || /^\d+$/.test(n) || CLITICO.test(n)) continue;
+    // A forma singular já cobre a plural: "métodos" e "método" são o mesmo
+    // termo, e contá-los em separado dilui a frequência de ambos.
+    if (n.endsWith("s") && freq.has(n.slice(0, -1))) { freq.set(n.slice(0, -1), freq.get(n.slice(0, -1)) + 1); continue; }
     freq.set(n, (freq.get(n) || 0) + 1);
     if (!originais.has(n)) originais.set(n, b);
   }
@@ -177,7 +208,9 @@ export function extrairTermosLocal(texto, { max = 30 } = {}) {
   const bi = new Map();
   for (let i = 0; i + 1 < toks.length; i++) {
     const a = toks[i], b = toks[i + 1];
-    if (a.length < 4 || b.length < 4 || CORRENTES.has(a) || CORRENTES.has(b)) continue;
+    if (a.length < 4 || b.length < 4) continue;
+    if (CORRENTES.has(a) || CORRENTES.has(b)) continue;
+    if (CLITICO.test(a) || CLITICO.test(b)) continue;
     const k = a + " " + b;
     bi.set(k, (bi.get(k) || 0) + 1);
   }

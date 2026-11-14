@@ -10,11 +10,12 @@ import { criarASR, asrDisponivel, verificarMicrofone, verificarRede } from "./as
 import { falar, parar as pararFala, ttsDisponivel } from "./tts.js";
 import * as IA from "./ai.js";
 import { criarCamara } from "./camera.js";
+import { AMOSTRAS, amostra } from "./amostras.js";
 
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-14.3";
+export const VERSAO = "2026-11-14.4";
 
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -97,10 +98,101 @@ function ecraAulas() {
             : `<span class="badge warn dot">Sem materiais submetidos</span>`}
         </button>`).join("") : `
         <div class="empty"><div class="big">&#9707;</div><p>Ainda não há aulas.</p></div>`}
+
+      <button class="btn sec" id="btnNova">+ Nova aula</button>
     </div>`);
 
   $$("[data-aula]").forEach(b => b.onclick = () => location.hash = `#/aula/${b.dataset.aula}`);
   $("#btnCfg").onclick = () => location.hash = "#/config";
+  $("#btnNova").onclick = () => location.hash = "#/nova";
+}
+
+/* ───────────────── nova aula ───────────────── */
+
+function ecraNova() {
+  marcarTab("aulas");
+  topo({ kicker: "Nova", titulo: "Criar uma aula", voltar: "#/aulas" });
+
+  render(`
+    <div class="screen">
+      <p class="muted">Cria uma aula e gera-lhe o glossário. Os materiais de exemplo são texto fixo, o que os torna úteis para comparar a extração com e sem IAG sobre exatamente a mesma entrada.</p>
+
+      <div class="card">
+        <b>Material de exemplo</b>
+        <div class="stack" style="margin-top:12px">
+          ${AMOSTRAS.map(a => `
+            <button class="choice" data-amostra="${a.id}">
+              <span class="ic">&#9634;</span>
+              <span class="grow">
+                <b>${escapar(a.uc)} · ${escapar(a.titulo)}</b>
+                <span>${a.texto.length} caracteres · ${(a.texto.match(/\[slide \d+\]/g) || []).length} slides · ~${a.termosEsperados.length} termos esperados</span>
+              </span>
+            </button>`).join("")}
+        </div>
+      </div>
+
+      <details class="card">
+        <summary style="cursor:pointer;font-weight:600">Ou criar de raiz</summary>
+        <div class="stack" style="margin-top:14px">
+          <div class="field"><label for="nUC">Unidade curricular</label><input id="nUC" placeholder="Sistemas Operativos"></div>
+          <div class="field"><label for="nTitulo">Título da aula</label><input id="nTitulo" placeholder="Escalonamento de processos"></div>
+          <div class="field"><label for="nDocente">Docente</label><input id="nDocente" placeholder="Nome do docente"></div>
+          <div class="field"><label for="nTexto">Texto dos slides</label>
+            <textarea id="nTexto" class="pergunta-box" style="font-size:14px;font-weight:400;min-height:160px" placeholder="Cola aqui o texto. Usa marcadores [slide 1], [slide 2]… se quiseres que a origem seja atribuída."></textarea>
+          </div>
+          <button class="btn" id="btnCriar">Criar e extrair</button>
+        </div>
+      </details>
+
+      <div id="estado"></div>
+    </div>`);
+
+  $$("[data-amostra]").forEach(b => b.onclick = () => {
+    const am = amostra(b.dataset.amostra);
+    if (am) criarAula({ uc: am.uc, titulo: am.titulo, docente: am.docente, texto: am.texto, nome: `${am.id}.pdf` });
+  });
+
+  $("#btnCriar").onclick = () => {
+    const uc = $("#nUC").value.trim(), titulo = $("#nTitulo").value.trim(), texto = $("#nTexto").value.trim();
+    if (!uc || !titulo) return toast("Preenche a unidade curricular e o título.");
+    if (texto.length < 100) return toast("Cola pelo menos um parágrafo de texto.");
+    criarAula({ uc, titulo, docente: $("#nDocente").value.trim() || "—", texto, nome: "texto colado" });
+  };
+}
+
+async function criarAula({ uc, titulo, docente, texto, nome }) {
+  const aula = {
+    id: "a" + Date.now().toString(36),
+    uc, titulo, docente,
+    numero: store.aulas().filter(a => a.uc === uc).length + 1,
+    sala: "—",
+    quando: "por agendar",
+    material: null,
+    glossario: null
+  };
+  store.guardarAula(aula);
+  await gerarEGuardar(aula, texto, nome, $("#estado"));
+}
+
+/** Gera o glossário e guarda-o com o diagnóstico, para que a extração possa
+ *  ser inspecionada depois. Partilhado entre criar aula e submeter material. */
+async function gerarEGuardar(aula, texto, nome, caixa) {
+  if (caixa) caixa.innerHTML = `<div class="notice info"><strong>A gerar o glossário</strong>${IA.temChave() ? "A IAG está a identificar a terminologia da disciplina…" : "Sem chave da IAG: a usar a heurística local."}</div>`;
+  try {
+    const r = await IA.gerarGlossario(texto, { nomeFicheiro: nome });
+    if (!r.termos.length) {
+      if (caixa) caixa.innerHTML = `<div class="notice warn"><strong>Glossário vazio</strong>Não foi identificada terminologia da disciplina neste material.</div>`;
+      return false;
+    }
+    aula.material = { nome, submetidoPor: "aluno", texto: texto.slice(0, 40000) };
+    aula.glossario = { geradoEm: Date.now(), origem: r.origem, termos: r.termos, diagnostico: r.diagnostico };
+    store.guardarAula(aula);
+    location.hash = `#/extracao/${aula.id}`;
+    return true;
+  } catch (e) {
+    if (caixa) caixa.innerHTML = `<div class="notice danger"><strong>A extração falhou</strong>${escapar(e.message)}</div>`;
+    return false;
+  }
 }
 
 /* ───────────────── E03 · preparar a sessão ───────────────── */
@@ -149,8 +241,11 @@ async function ecraPreparar(id) {
             ${a.glossario.termos.slice(0, 6).map(t =>
               `<span class="chip">${escapar(t.termo)}<i class="conf${t.confianca < 0.9 ? " baixa" : ""}">${pct(t.confianca)}</i></span>`).join("")}
           </div>
-          ${a.glossario.termos.length > 6
-            ? `<button class="btn ghost sm" id="verTodos" style="margin-top:10px;padding-left:0">ver todos (${a.glossario.termos.length})</button>` : ""}
+          <div class="row" style="gap:12px;margin-top:10px">
+            ${a.glossario.termos.length > 6
+              ? `<button class="btn ghost sm" id="verTodos" style="padding-left:0">ver todos (${a.glossario.termos.length})</button>` : ""}
+            <a class="btn ghost sm" href="#/extracao/${a.id}" style="padding-left:0">como foi extraído</a>
+          </div>
         </div>
         <button class="btn" id="btnIniciar">&#9654; Iniciar sessão</button>
       ` : `
@@ -278,26 +373,9 @@ function ecraMaterial(id) {
     }
   }
 
+  // Segue para o inspetor da extração, que é onde se vê o que saiu e como.
   async function gerar(texto, nome) {
-    const estado = $("#estado");
-    estado.innerHTML = `<div class="notice info"><strong>A gerar o glossário</strong>${IA.temChave() ? "A IAG está a identificar a terminologia da disciplina…" : "Sem chave da IAG: a usar a heurística local."}</div>`;
-    try {
-      const { termos, origem } = await IA.gerarGlossario(texto, { nomeFicheiro: nome });
-      if (!termos.length) {
-        estado.innerHTML = `<div class="notice warn"><strong>Glossário vazio</strong>Não foi identificada terminologia da disciplina neste material.</div>`;
-        return;
-      }
-      a.material = { nome, submetidoPor: "aluno" };
-      a.glossario = { geradoEm: Date.now(), origem, termos };
-      store.guardarAula(a);
-      estado.innerHTML = `
-        <div class="notice ok"><strong>Glossário gerado · ${termos.length} termos</strong>Origem: ${escapar(origem)}</div>
-        <div class="card" style="margin-top:12px"><div class="chips">${termos.slice(0, 12).map(t => `<span class="chip">${escapar(t.termo)}</span>`).join("")}</div></div>
-        <button class="btn" id="irAula" style="margin-top:14px">Continuar</button>`;
-      $("#irAula").onclick = () => location.hash = `#/aula/${a.id}`;
-    } catch (e) {
-      estado.innerHTML = `<div class="notice danger"><strong>A IAG falhou</strong>${escapar(e.message)}. O glossário local foi usado em alternativa.</div>`;
-    }
+    await gerarEGuardar(a, texto, nome, $("#estado"));
   }
 }
 
@@ -313,6 +391,94 @@ async function lerPDF(f) {
     out += `\n[slide ${i}] ` + tc.items.map(it => it.str).join(" ");
   }
   return out;
+}
+
+/* ───────────────── inspetor da extração ─────────────────
+   Mostra COMO o glossário foi gerado, e não só o resultado. É o que permite
+   defender o processo em vez de o afirmar: vê-se a entrada, o prompt, a
+   resposta em bruto e os termos que daí saíram, com dois sinais lado a lado
+   — a confiança que o modelo atribui a si próprio e a contagem objetiva de
+   ocorrências no texto. Quando os dois discordam, há ali qualquer coisa. */
+
+function ecraExtracao(id) {
+  const a = store.aula(id);
+  if (!a || !a.glossario) return (location.hash = "#/aulas");
+  marcarTab("aulas");
+  topo({ kicker: `${escapar(a.uc)} · ${escapar(a.titulo)}`, titulo: "Extração de termos", voltar: "#/aulas" });
+
+  const g = a.glossario;
+  const d = g.diagnostico || {};
+  const termos = g.termos || [];
+  const comConf = termos.filter(t => typeof t.confianca === "number");
+  const media = comConf.length ? comConf.reduce((s, t) => s + t.confianca, 0) / comConf.length : null;
+  const semOcorrencia = termos.filter(t => t.ocorrencias === 0);
+
+  render(`
+    <div class="screen">
+      <div class="card">
+        <div class="row between" style="margin-bottom:10px">
+          <b>Como foi extraído</b>
+          <span class="badge ${d.caminho === "IAG" ? "info" : "warn"}">${escapar(d.caminho || "—")}</span>
+        </div>
+        <div class="kv">
+          ${d.modelo ? `<div><span>modelo</span><code>${escapar(d.modelo)}</code></div>` : ""}
+          ${d.porque ? `<div><span>porquê</span>${escapar(d.porque)}</div>` : ""}
+          <div><span>entrada</span>${(d.caracteres || 0).toLocaleString("pt-PT")} caracteres</div>
+          <div><span>demorou</span>${d.ms != null ? d.ms + " ms" : "—"}</div>
+          <div><span>termos</span>${termos.length}</div>
+          ${media != null ? `<div><span>confiança média</span>${Math.round(media * 100)}%</div>` : ""}
+        </div>
+      </div>
+
+      ${semOcorrencia.length ? `
+        <div class="notice warn">
+          <strong>${semOcorrencia.length} termo${semOcorrencia.length > 1 ? "s" : ""} não aparece${semOcorrencia.length > 1 ? "m" : ""} no material</strong>
+          ${semOcorrencia.map(t => escapar(t.termo)).join(", ")}. O modelo pode tê-los inferido do contexto — ou inventado. Vale a pena confirmar.
+        </div>` : ""}
+
+      <div class="card">
+        <div class="row between" style="margin-bottom:4px">
+          <b>Termos</b>
+          <span class="muted small">confiança · ocorrências · slide</span>
+        </div>
+        ${termos.map(t => `
+          <div class="termo-linha">
+            <div class="row" style="gap:8px;align-items:baseline">
+              <b class="grow">${escapar(t.termo)}</b>
+              ${typeof t.confianca === "number"
+                ? `<span class="conf${t.confianca < 0.9 ? " baixa" : ""}">${Math.round(t.confianca * 100)}%</span>` : ""}
+              <span class="chip plain" style="padding:1px 7px;font-size:11px">${t.ocorrencias ?? "?"}×</span>
+              ${t.slide ? `<span class="slide-ref">slide ${t.slide}</span>` : `<span class="slide-ref incerto">sem slide</span>`}
+            </div>
+            ${t.explicacao ? `<div class="muted small" style="margin-top:4px">${escapar(t.explicacao)}</div>`
+                           : `<div class="muted small" style="margin-top:4px"><i>sem explicação — a heurística local não gera explicações</i></div>`}
+          </div>`).join("")}
+      </div>
+
+      <details class="card"><summary style="cursor:pointer;font-weight:600">Texto de entrada</summary>
+        <pre class="bruto">${escapar(a.material?.texto || "(não guardado)")}</pre></details>
+
+      ${d.prompt ? `<details class="card"><summary style="cursor:pointer;font-weight:600">Prompt enviado</summary>
+        <pre class="bruto">${escapar(d.prompt)}</pre></details>` : ""}
+
+      ${d.respostaBruta ? `<details class="card"><summary style="cursor:pointer;font-weight:600">Resposta em bruto</summary>
+        <pre class="bruto">${escapar(d.respostaBruta)}</pre></details>` : ""}
+
+      <div class="row" style="gap:10px">
+        <button class="btn sec" id="btnReextrair">Extrair outra vez</button>
+        <a class="btn" href="#/aula/${a.id}">Ir para a aula</a>
+      </div>
+      <div id="estado"></div>
+    </div>`);
+
+  // Correr outra vez serve para comparar: com chave e sem chave, ou o mesmo
+  // material em modelos diferentes. É o teste A/B que o relatório pede.
+  $("#btnReextrair").onclick = async () => {
+    const texto = a.material?.texto;
+    if (!texto) return toast("O texto de entrada não foi guardado nesta aula.");
+    await gerarEGuardar(a, texto, a.material.nome, $("#estado"));
+    encaminhar();
+  };
 }
 
 /* ───────────────── E04 · sessão ao vivo ───────────────── */
@@ -885,6 +1051,8 @@ function ecraConfig() {
 const rotas = [
   [/^#\/aulas$/,            () => ecraAulas()],
   [/^#\/aula\/(.+)$/,       m => ecraPreparar(m[1])],
+  [/^#\/nova$/,             () => ecraNova()],
+  [/^#\/extracao\/(.+)$/,   m => ecraExtracao(m[1])],
   [/^#\/material\/(.+)$/,   m => ecraMaterial(m[1])],
   [/^#\/sessao$/,           () => { const s = store.sessaoAtiva(); location.hash = s ? `#/sessao/${s.id}` : "#/aulas"; }],
   [/^#\/sessao\/(.+)$/,     m => ecraSessao(m[1])],

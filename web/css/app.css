@@ -235,6 +235,28 @@ button{font:inherit}
 .conf::before{ content:"✓ "; }
 .conf.baixa::before{ content:"! "; }
 
+/* ───────────────── inspetor da extração ───────────────── */
+.kv{display:flex; flex-direction:column; gap:7px; font-size:14px}
+.kv > div{display:flex; gap:10px; align-items:baseline}
+.kv > div > span:first-child{
+  flex:0 0 118px; color:var(--mute); font-size:12.5px;
+  text-transform:uppercase; letter-spacing:.04em; font-weight:600;
+}
+.kv code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px}
+
+.termo-linha{padding:11px 0; border-bottom:1px solid var(--line)}
+.termo-linha:last-child{border-bottom:0}
+.termo-linha b{font-size:15.5px}
+
+.bruto{
+  margin:12px 0 0; padding:12px; border-radius:var(--radius-sm);
+  background:var(--navy-50); border:1px solid var(--line);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:11.5px; line-height:1.55; color:var(--ink-2);
+  white-space:pre-wrap; word-break:break-word;
+  max-height:340px; overflow:auto;
+}
+
 .modelo-linha{
   display:flex; align-items:center; gap:8px;
   padding:9px 0; border-bottom:1px solid var(--line); font-size:14px;
