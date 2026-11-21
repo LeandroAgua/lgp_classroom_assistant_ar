@@ -18,7 +18,7 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-21.9";
+export const VERSAO = "2026-11-21.10";
 
 /* O que está dentro da app para o ALUNO, e o que está lá para nós.
    Um aluno surdo numa aula precisa de: ver as aulas, iniciar a sessão, ler
@@ -1098,13 +1098,15 @@ function abrirPergunta(s) {
           if (!r) { chip.hidden = true; suave.empurrar(null); return; }
 
           const previsao = modo === "asl"
-            ? IAASL.classificarASL(r.raw, { largura: r.largura, altura: r.altura, mao: r.mao })
+            ? IAASL.classificarASL(r.raw, { largura: r.largura, altura: r.altura })
             : r.previsao;
 
-          const s = suave.empurrar(previsao);
+          const arriscada = previsao && previsao.arriscada;
+          const s = suave.empurrar(arriscada ? null : previsao);
           chip.hidden = false;
           chip.textContent = s.etiqueta
             ? `${s.etiqueta} · ${Math.round(s.confianca * 100)}%`
+            : arriscada ? `${previsao.etiqueta}? · ${Math.round(previsao.confianca * 100)}%`
             : "mão detetada";
 
           if (s.pronto && s.novo) {
@@ -1455,9 +1457,14 @@ function ecraGestos() {
 
       if (modoG === "asl") {
         if (!r) { suaveASL.empurrar(null); return; }
-        const p = IAASL.classificarASL(r.raw, { largura: r.largura, altura: r.altura, mao: r.mao });
-        const st = suaveASL.empurrar(p);
-        chip.textContent = st.etiqueta ? `${st.etiqueta} · ${Math.round(st.confianca * 100)}%` : "mão detetada";
+        const p = IAASL.classificarASL(r.raw, { largura: r.largura, altura: r.altura });
+        // Só o que passa o limiar conta para a votação; a hipótese arriscada
+        // serve para o ecrã mostrar que está a pensar, com um ponto de
+        // interrogação a dizer que não é para levar a sério.
+        const st = suaveASL.empurrar(p && !p.arriscada ? p : null);
+        chip.textContent = st.etiqueta
+          ? `${st.etiqueta} · ${Math.round(st.confianca * 100)}%`
+          : p ? `${p.etiqueta}? · ${Math.round(p.confianca * 100)}%` : "mão detetada";
         if (st.pronto && st.novo) {
           soletrado += st.etiqueta;
           suaveASL.confirmar(st.etiqueta);

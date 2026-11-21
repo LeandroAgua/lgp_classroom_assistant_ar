@@ -139,10 +139,44 @@ export function preverLetra(vec) {
 }
 
 /** Classifica direto a partir dos landmarks em bruto. */
+/* Classifica experimentando as duas orientações e ficando com a mais
+   confiante.
+
+   A razão é um detalhe que custou a encontrar: o MediaPipe decide se uma mão
+   é esquerda ou direita ASSUMINDO que a imagem vem espelhada, como numa
+   selfie. O que chega da getUserMedia não vem espelhado — o espelho é só o
+   transform:scaleX(-1) com que o vídeo é mostrado — por isso a mão direita de
+   quem está à frente da câmara é anunciada como esquerda.
+
+   Isso não se nota no modo de gestos gravados, que treina e prevê com a mesma
+   troca e portanto é consistente consigo próprio. Mas o modelo de ASL é
+   pré-treinado e espelha as mãos esquerdas para as pôr na orientação das
+   direitas: com a mão trocada, espelhava exatamente ao contrário e as
+   previsões saíam sempre abaixo do limiar. Nenhuma letra aparecia.
+
+   Em vez de corrigir a convenção — que depende da câmara e que não posso
+   testar em todas — experimentam-se as duas. São duas multiplicações de 63
+   por 24 e corre a cada imagem sem se dar por isso.
+
+   `arriscada` leva a melhor hipótese mesmo abaixo do limiar: não escreve
+   letra nenhuma, serve para o ecrã mostrar que está vivo em vez de parecer
+   pendurado. */
 export function classificarASL(raw, meta) {
-  const vec = normalizarASL(raw, meta);
-  if (!vec) return null;
-  const p = preverLetra(vec);
-  if (!p || !p.certo) return null;        // abaixo do limiar: não arrisca
-  return { etiqueta: p.etiqueta, confianca: p.confianca };
+  let melhor = null, melhorArriscada = null;
+
+  for (const mao of ["right", "left"]) {
+    const vec = normalizarASL(raw, { ...meta, mao });
+    if (!vec) continue;
+    const p = preverLetra(vec);
+    if (!p) continue;
+    if (!melhorArriscada || p.confianca > melhorArriscada.confianca) {
+      melhorArriscada = { etiqueta: p.etiqueta, confianca: p.confianca };
+    }
+    if (p.certo && (!melhor || p.confianca > melhor.confianca)) {
+      melhor = { etiqueta: p.etiqueta, confianca: p.confianca };
+    }
+  }
+
+  if (melhor) return melhor;
+  return melhorArriscada ? { ...melhorArriscada, arriscada: true } : null;
 }
