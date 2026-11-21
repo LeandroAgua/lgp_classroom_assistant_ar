@@ -673,3 +673,15 @@ input[type="range"]::-moz-range-thumb{
 .rodape-perigo{margin-top:28px; padding-top:18px; border-top:1px solid var(--line)}
 .btn.ghost.danger{background:transparent; color:var(--danger); border-color:transparent}
 .btn.ghost.danger:active{background:var(--danger-bg)}
+
+/* Medidor de entrada do microfone na sessão. Mostra que o som chega — ou que
+   não chega — sem obrigar a adivinhar a partir da ausência de legendas. */
+.nivel-mic{display:flex; align-items:center; gap:10px; padding:2px 2px 6px}
+.nivel-mic .barra{
+  flex:1; height:6px; border-radius:3px; background:var(--line); overflow:hidden;
+}
+.nivel-mic .barra i{
+  display:block; height:100%; width:0; background:var(--ok);
+  transition:width .1s linear;
+}
+.nivel-mic .small{flex:0 0 auto}

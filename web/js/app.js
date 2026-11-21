@@ -18,7 +18,7 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-21.4";
+export const VERSAO = "2026-11-21.5";
 
 /* O que está dentro da app para o ALUNO, e o que está lá para nós.
    Um aluno surdo numa aula precisa de: ver as aulas, iniciar a sessão, ler
@@ -676,6 +676,15 @@ function ecraSessao(sid) {
         <span class="right" id="relogio">00:00</span>
       </div>
       <div class="sess-sub">${escapar(a?.uc || "")} · ${escapar(a?.titulo || "")}</div>
+      ${simular ? "" : `
+      <!-- Medidor de entrada: separa «o microfone não capta» de «o
+           reconhecedor não devolve nada», que são problemas diferentes e
+           davam exatamente o mesmo ecrã parado. -->
+      <div class="nivel-mic" id="nivelMic" hidden>
+        <span class="barra"><i id="nivelBarra"></i></span>
+        <span class="muted small" id="nivelTxt">a medir o microfone…</span>
+      </div>`}
+      <div id="avisoAsr"></div>
       ${simular ? `<div class="notice warn" style="margin:0">Modo de simulação — legendas de exemplo, sem áudio nem vídeo reais.</div>` : ""}
       ${a?.glossario ? "" : `<div class="notice warn" style="margin:0"><strong>Aula sem glossário</strong>Os termos técnicos não são contextualizados.</div>`}
       <div id="legenda"></div>
@@ -724,12 +733,15 @@ function ecraSessao(sid) {
     onFinal: ({ texto, confianca }) => { elParcial.hidden = true; acrescentar(texto, confianca); },
     onEstado: (e) => {
       if (simular || emPausa) return;
+      // Arrancou mesmo: tirar o aviso de uma falha anterior, senão fica no
+      // ecrã a contradizer as legendas que já estão a aparecer.
+      if (e === "a-ouvir") { const cx = $("#avisoAsr"); if (cx) cx.innerHTML = ""; }
       elEstado.textContent = ({
         "a-ouvir": "A legendar", "a-retomar": "A retomar…",
         "sem-permissao": "Microfone recusado", "parado": "Em pausa"
       })[e] || e;
     },
-    onErro: (e) => { if (e.message === "network") toast("Ligação perdida. A app retoma sozinha."); }
+    onErro: (e) => mostrarErroAsr(e.message)
   });
 
   function arrancarSimulacao() {
@@ -740,11 +752,76 @@ function ecraSessao(sid) {
     }, 3200);
   }
 
+  /* Os erros do reconhecedor estavam a ser deitados fora: só o "network" dava
+     um toast e os outros desapareciam em silêncio. O resultado era o pior
+     possível para quem usa — "A ligar…" para sempre, sem legendas e sem
+     nenhuma pista do que fazer. São códigos da Web Speech API; traduzi-los é
+     a diferença entre um ecrã parado e um problema que se resolve. */
+  const ERROS_ASR = {
+    "not-allowed": ["Microfone bloqueado", "O browser não deixa esta página ouvir o microfone. Toca no cadeado ao lado do endereço e permite o microfone."],
+    "service-not-allowed": ["Reconhecimento bloqueado", "O browser bloqueou o serviço de reconhecimento de fala. Verifica as permissões do site."],
+    "audio-capture": ["Sem microfone", "Não há microfone disponível neste dispositivo, ou está a ser usado por outra aplicação."],
+    "network": ["Sem ligação ao reconhecimento", "No Chrome o reconhecimento de fala é feito nos servidores da Google, por isso precisa de internet. A app retoma sozinha quando a ligação voltar."],
+    "language-not-supported": ["Português não disponível", "Este browser não reconhece pt-PT. Tenta no Chrome, ou usa o modo de simulação."],
+    "sem-suporte": ["Browser sem reconhecimento de fala", "A Web Speech API existe no Chrome e no Edge. No Firefox e no Safari não há. Usa o modo de simulação para ver o fluxo."]
+  };
+
+  function mostrarErroAsr(codigo) {
+    const cx = $("#avisoAsr");
+    if (!cx) return;
+    const [titulo, corpo] = ERROS_ASR[codigo] || ["O reconhecimento falhou", `Código devolvido pelo browser: ${codigo}.`];
+    cx.innerHTML = `<div class="notice danger" style="margin:0"><strong>${escapar(titulo)}</strong>${escapar(corpo)}</div>`;
+  }
+
+  /* Mede o sinal do microfone, em paralelo com o reconhecedor. Sem isto,
+     "não capta som" e "capta mas não reconhece" davam o mesmo ecrã, e são
+     causas diferentes com soluções diferentes. */
+  let pararNivel = null;
+  async function medirMicrofone() {
+    const cx = $("#nivelMic"), barra = $("#nivelBarra"), txt = $("#nivelTxt");
+    if (!cx || !navigator.mediaDevices?.getUserMedia) return;
+    cx.hidden = false;
+    let ctx, fonte, stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      fonte = ctx.createMediaStreamSource(stream);
+      const an = ctx.createAnalyser();
+      an.fftSize = 512;
+      fonte.connect(an);
+      const dados = new Uint8Array(an.frequencyBinCount);
+      let houveSom = false, t0 = Date.now();
+
+      const laco = setInterval(() => {
+        if (!$("#nivelBarra")) return pararNivel && pararNivel();
+        an.getByteTimeDomainData(dados);
+        let pico = 0;
+        for (const v of dados) pico = Math.max(pico, Math.abs(v - 128));
+        const pct = Math.min(100, Math.round((pico / 60) * 100));
+        barra.style.width = pct + "%";
+        if (pct > 12) houveSom = true;
+        txt.textContent = houveSom
+          ? "microfone a captar"
+          : (Date.now() - t0 > 6000 ? "sem som no microfone — fala ou verifica a entrada" : "a medir o microfone…");
+      }, 120);
+
+      pararNivel = () => {
+        clearInterval(laco);
+        try { fonte.disconnect(); ctx.close(); } catch {}
+        stream.getTracks().forEach(t => t.stop());
+        pararNivel = null;
+      };
+    } catch (e) {
+      cx.hidden = true;
+      mostrarErroAsr(e.name === "NotAllowedError" ? "not-allowed" : "audio-capture");
+    }
+  }
+
   if (simular) arrancarSimulacao();
-  else if (asrDisponivel) asr.iniciar();
+  else if (asrDisponivel) { asr.iniciar(); medirMicrofone(); }
   else {
     elEstado.textContent = "Sem reconhecimento de fala";
-    toast("Este browser não suporta reconhecimento de fala. Liga o modo de simulação.");
+    mostrarErroAsr("sem-suporte");
   }
 
   $("#btnPausar").onclick = () => {
@@ -778,7 +855,7 @@ function ecraSessao(sid) {
     location.hash = `#/resumo/${s.id}`;
   };
 
-  limpezaEcra = () => { asr.parar(); clearInterval(relogio); if (simTimer) clearInterval(simTimer); };
+  limpezaEcra = () => { asr.parar(); clearInterval(relogio); if (simTimer) clearInterval(simTimer); if (pararNivel) pararNivel(); };
 }
 
 /* --- folha de explicação do termo (estado do E04) --- */
