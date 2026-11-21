@@ -90,8 +90,21 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         webView.webViewClient = object : WebViewClient() {
-            override fun shouldInterceptRequest(view: WebView, req: WebResourceRequest): WebResourceResponse? =
-                loader.shouldInterceptRequest(req.url)
+            override fun shouldInterceptRequest(view: WebView, req: WebResourceRequest): WebResourceResponse? {
+                val resposta = loader.shouldInterceptRequest(req.url) ?: return null
+                // Ver [tipoMime]: a adivinha do WebViewAssetLoader não chega.
+                tipoMime(req.url.toString())?.let {
+                    resposta.mimeType = it
+                    if (it.startsWith("text/") || it.endsWith("json") || it.endsWith("xml")) {
+                        resposta.encoding = "utf-8"
+                    }
+                }
+                return resposta
+            }
+
+            override fun onReceivedError(view: WebView, req: WebResourceRequest, err: WebResourceError) {
+                android.util.Log.e("ConTexto", "falhou ${req.url}: ${err.description}")
+            }
 
             override fun shouldOverrideUrlLoading(view: WebView, req: WebResourceRequest): Boolean {
                 val url = req.url.toString()
@@ -104,6 +117,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.webChromeClient = object : WebChromeClient() {
+            /** A consola do WebView não vai a lado nenhum por omissão. Sem isto,
+             *  um erro de JavaScript dentro da app é invisível: fica o ecrã em
+             *  branco e nada no logcat. Filtrar por "ConTextoWeb" mostra-o. */
+            override fun onConsoleMessage(m: ConsoleMessage): Boolean {
+                android.util.Log.d("ConTextoWeb", "${m.messageLevel()} ${m.message()} (${m.sourceId()}:${m.lineNumber()})")
+                return true
+            }
+
             /** Sem isto, getUserMedia é recusado pelo WebView, mesmo com as
              *  permissões do manifesto concedidas. */
             override fun onPermissionRequest(request: PermissionRequest) {
@@ -168,6 +189,39 @@ class MainActivity : AppCompatActivity() {
 
     private fun temPermissao(p: String) =
         ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * O tipo de conteúdo de cada ficheiro, declarado e não adivinhado.
+     *
+     * O [WebViewAssetLoader] deduz o tipo a partir da extensão, e quando a
+     * tabela do sistema não conhece a extensão devolve `text/plain`. Isso não
+     * é um detalhe cosmético: em modo de normas, uma folha de estilo que não
+     * venha como `text/css` é ignorada, e um `<script type="module">` que não
+     * venha como JavaScript é recusado — ambos sem erro visível. O resultado
+     * é a página a aparecer como HTML cru, sem estilos e sem app.
+     *
+     * A tabela varia entre fabricantes e versões de Android, e `.mjs` (o
+     * pdf.js) falta em quase todas. Declarar o tipo aqui tira a dúvida.
+     */
+    private fun tipoMime(url: String): String? {
+        val caminho = url.substringBefore('?').substringBefore('#').lowercase()
+        return when {
+            caminho.endsWith(".html") || caminho.endsWith(".htm") -> "text/html"
+            caminho.endsWith(".css") -> "text/css"
+            caminho.endsWith(".js") || caminho.endsWith(".mjs") -> "text/javascript"
+            caminho.endsWith(".json") -> "application/json"
+            caminho.endsWith(".webmanifest") -> "application/manifest+json"
+            caminho.endsWith(".svg") -> "image/svg+xml"
+            caminho.endsWith(".png") -> "image/png"
+            caminho.endsWith(".jpg") || caminho.endsWith(".jpeg") -> "image/jpeg"
+            caminho.endsWith(".webp") -> "image/webp"
+            caminho.endsWith(".ico") -> "image/x-icon"
+            caminho.endsWith(".woff2") -> "font/woff2"
+            caminho.endsWith(".wasm") -> "application/wasm"
+            caminho.endsWith(".md") || caminho.endsWith(".txt") -> "text/plain"
+            else -> null
+        }
+    }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
