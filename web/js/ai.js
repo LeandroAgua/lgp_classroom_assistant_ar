@@ -62,6 +62,18 @@ async function chamar(modelo, corpo, chave) {
   return { ok: false, estado: r.status, texto: t.slice(0, 200) };
 }
 
+/** Os códigos internos, em português, para quem está a olhar para o ecrã.
+ *  Um "resposta-cortada" a vermelho não diz a ninguém o que fazer a seguir. */
+export function explicarErro(codigo) {
+  return ({
+    "sem-chave": "Não há chave configurada.",
+    "resposta-vazia": "O modelo respondeu sem conteúdo. Tenta outra vez ou escolhe outro modelo.",
+    "resposta-cortada": "A resposta foi cortada no limite de tamanho. Se acontecer sempre, escolhe um modelo «flash» mais recente.",
+    "json-invalido": "O modelo respondeu fora do formato esperado. Tenta outra vez.",
+    "sem-modelos": "A chave é válida mas não tem modelos disponíveis."
+  })[codigo] || codigo;
+}
+
 /* Orçamento total de espera. Sem isto, cinco modelos × três tentativas com
    recuo davam mais de meio minuto de ecrã parado antes de desistir — e do
    lado de quem usa, "a pensar muito" e "pendurado" são indistinguíveis. */
@@ -419,7 +431,8 @@ export async function testarModelo(id) {
 
   const corpo = {
     contents: [{ parts: [{ text: 'Responde apenas com JSON: {"ok":true}' }] }],
-    generationConfig: { temperature: 0, maxOutputTokens: 20, responseMimeType: "application/json" }
+    // Ver testarChave: o raciocínio dos modelos recentes gasta o teto.
+    generationConfig: { temperature: 0, maxOutputTokens: 1024, responseMimeType: "application/json" }
   };
 
   const t0 = performance.now();
@@ -444,7 +457,11 @@ export async function testarModelo(id) {
 
 export async function testarChave() {
   try {
-    await pedir('Responde apenas com JSON: {"ok":true}', { maxTokens: 20 });
+    /* 1024 e não 20. A resposta esperada são sete tokens, mas os modelos
+       recentes raciocinam antes de responder e esse raciocínio conta para o
+       mesmo teto. Com 20, o teto esgotava-se antes de sair o primeiro
+       caractere e o teste dizia "resposta-cortada" com a chave boa. */
+    await pedir('Responde apenas com JSON: {"ok":true}', { maxTokens: 1024 });
     return { ok: true };
   } catch (e) {
     return { ok: false, erro: e.message };

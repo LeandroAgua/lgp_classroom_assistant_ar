@@ -18,7 +18,7 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-21.5";
+export const VERSAO = "2026-11-21.6";
 
 /* O que está dentro da app para o ALUNO, e o que está lá para nós.
    Um aluno surdo numa aula precisa de: ver as aulas, iniciar a sessão, ler
@@ -366,7 +366,7 @@ async function gerarEGuardar(aula, texto, nome, caixa) {
     return true;
   } catch (e) {
     parar();
-    if (caixa) caixa.innerHTML = `<div class="notice danger"><strong>A extração falhou</strong>${escapar(e.message)}</div>`;
+    if (caixa) caixa.innerHTML = `<div class="notice danger"><strong>A extração falhou</strong>${escapar(IA.explicarErro(e.message))}</div>`;
     return false;
   }
 }
@@ -897,7 +897,7 @@ async function abrirTermo(termo, s, a) {
       + (r.origem ? `<div class="muted small" style="margin-top:8px">${escapar(r.origem)}</div>` : "");
   } catch (e) {
     const corpo = $("#corpoTermo", back);
-    if (corpo) corpo.innerHTML = `<div class="notice danger" style="margin:0"><strong>Não foi possível explicar</strong>${escapar(e.message)}</div>`;
+    if (corpo) corpo.innerHTML = `<div class="notice danger" style="margin:0"><strong>Não foi possível explicar</strong>${escapar(IA.explicarErro(e.message))}</div>`;
   }
 }
 
@@ -1670,7 +1670,7 @@ function ecraConfig() {
     $("#res").innerHTML = `<div class="notice info">A testar…</div>`;
     const r = await IA.testarChave();
     if (!r.ok) {
-      $("#res").innerHTML = `<div class="notice danger"><strong>Falhou</strong>${escapar(r.erro)}</div>`;
+      $("#res").innerHTML = `<div class="notice danger"><strong>Falhou</strong>${escapar(IA.explicarErro(r.erro))}</div>`;
       return;
     }
     // Dizer qual respondeu: se um modelo estiver sobrecarregado, a app desce
