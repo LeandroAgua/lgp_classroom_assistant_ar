@@ -18,7 +18,7 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-21.6";
+export const VERSAO = "2026-11-21.7";
 
 /* O que está dentro da app para o ALUNO, e o que está lá para nós.
    Um aluno surdo numa aula precisa de: ver as aulas, iniciar a sessão, ler
@@ -382,6 +382,14 @@ async function ecraPreparar(id) {
   const cfg = store.config();
   const temGloss = !!a.glossario;
 
+  /* Uma aula dá-se uma vez. Começar outra sessão da mesma aula partia o
+     histórico em pedaços e deixava dois resumos da mesma matéria, sem forma
+     de saber qual era o bom. Havendo sessão terminada, o caminho passa a ser
+     o resumo dela. */
+  const terminada = store.sessoes().find(x => x.aulaId === a.id && x.fim);
+  const ativa = store.sessoes().find(x => x.aulaId === a.id && !x.fim);
+  const jaFoi = !!terminada && !ativa;
+
   render(`
     <div class="screen">
       <div class="aula-meta">
@@ -404,6 +412,15 @@ async function ecraPreparar(id) {
 
       <div id="verificacoes"></div>
 
+      ${jaFoi ? `
+        <div class="notice ok">
+          <strong>Aula já assistida</strong>
+          ${escapar(dataCurta(terminada.inicio))} · ${escapar(duracao(terminada.fim - terminada.inicio))} · ${terminada.linhas.length} linhas de legenda.
+        </div>
+        <a class="btn" href="#/resumo/${terminada.id}">Ver o resumo</a>
+        <a class="btn sec" href="#/revisao/${terminada.id}">Ficha de revisão</a>
+        ${modoDev() ? `<button class="btn ghost sm" id="btnRepetir">Assistir outra vez (modo de teste)</button>` : ""}` : ""}
+
       ${temGloss ? `
         <div class="notice ok">
           <strong>Glossário pronto</strong>
@@ -424,8 +441,8 @@ async function ecraPreparar(id) {
             ${modoDev() ? `<a class="btn ghost sm" href="#/extracao/${a.id}" style="padding-left:0">como foi extraído</a>` : ""}
           </div>
         </div>
-        <button class="btn" id="btnIniciar">&#9654; Iniciar sessão</button>
-      ` : `
+        ${jaFoi ? "" : `<button class="btn" id="btnIniciar">&#9654; ${ativa ? "Retomar a sessão" : "Iniciar sessão"}</button>`}
+      ` : jaFoi ? "" : `
         <div class="notice warn">
           <strong>Sem materiais desta aula</strong>
           A legendagem vai funcionar, mas a precisão nos termos técnicos fica reduzida.
@@ -481,6 +498,7 @@ async function ecraPreparar(id) {
   correrVerificacoes();
 
   $("#btnIniciar") && ($("#btnIniciar").onclick = () => iniciarSessao(a.id));
+  $("#btnRepetir") && ($("#btnRepetir").onclick = () => iniciarSessao(a.id, { nova: true }));
   $("#opSubmeter") && ($("#opSubmeter").onclick = () => location.hash = `#/material/${a.id}`);
   $("#opSem") && ($("#opSem").onclick = () => iniciarSessao(a.id));
   $("#opPedir") && ($("#opPedir").onclick = () => {
@@ -516,9 +534,9 @@ async function ecraPreparar(id) {
   });
 }
 
-function iniciarSessao(aulaId) {
+function iniciarSessao(aulaId, { nova = false } = {}) {
   const existente = store.sessaoAtiva();
-  const s = (existente && existente.aulaId === aulaId) ? existente : store.criarSessao(aulaId);
+  const s = (!nova && existente && existente.aulaId === aulaId) ? existente : store.criarSessao(aulaId);
   location.hash = `#/sessao/${s.id}`;
 }
 
@@ -1306,8 +1324,9 @@ function ecraGestos() {
         <video id="cam" autoplay playsinline muted></video>
         <canvas id="pontos"></canvas>
         <div class="gesto-chip" id="chip" hidden>—</div>
-        <div class="camera-hint" id="hint">A pedir acesso à câmara…</div>
+        <div class="camera-hint" id="hint">A carregar a deteção de mãos…</div>
       </div>
+      <div id="falhaGestos"></div>
 
       <div class="field">
         <label for="etiqueta">Etiqueta do gesto</label>
@@ -1366,7 +1385,27 @@ function ecraGestos() {
       const b = $("#btnGravar");
       if (b) b.disabled = !vec || !$("#etiqueta").value.trim();
     },
-    onErro: (e) => { const h = $("#hint"); if (h) h.textContent = "Câmara indisponível: " + e.message; }
+    /* Dizia sempre "Câmara indisponível", mesmo quando a câmara estava boa e
+       o que faltava era o MediaPipe. São problemas diferentes: um resolve-se
+       nas permissões, o outro na rede. */
+    onErro: (e) => {
+      const h = $("#hint");
+      if (e.peca) {
+        const [titulo, corpo] = LGP.explicarFalha(e.peca);
+        if (h) h.textContent = titulo;
+        $("#falhaGestos").innerHTML =
+          `<div class="notice danger" style="margin:0"><strong>${escapar(titulo)}</strong>${escapar(corpo)}<br><span class="muted small">${escapar(e.message)}</span></div>`;
+      } else {
+        const recusada = e.message === "camara-recusada";
+        if (h) h.textContent = recusada ? "Câmara recusada" : "Câmara indisponível";
+        $("#falhaGestos").innerHTML =
+          `<div class="notice danger" style="margin:0"><strong>${recusada ? "Câmara recusada" : "Câmara indisponível"}</strong>${
+            recusada
+              ? "Permite a câmara no cadeado ao lado do endereço e recarrega."
+              : "Não há câmara disponível, ou está a ser usada por outra aplicação."
+          }</div>`;
+      }
+    }
   });
   captura.iniciar().then(ok => { const h = $("#hint"); if (ok && h) h.textContent = "Mantém o gesto parado enquanto grava."; });
 

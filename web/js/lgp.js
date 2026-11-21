@@ -42,22 +42,62 @@ export const VOCABULARIO_SUGERIDO = [
 
 let mod = null, detetor = null, erroCarregamento = null;
 
+/* Três peças externas, e cada uma falha de maneira diferente: a biblioteca
+   (jsDelivr), o wasm (jsDelivr), e o modelo treinado (storage.googleapis.com,
+   da Google). Antes, qualquer uma delas dava a mesma mensagem em inglês e o
+   ecrã dizia "Câmara indisponível" — com a câmara perfeitamente boa.
+
+   Ao contrário do pdf.js, estas não estão no repositório: são mais de 10 MB,
+   e este ecrã está fora do âmbito da app. A consequência é que precisam de
+   internet, e numa rede que bloqueie o storage.googleapis.com — o que algumas
+   redes institucionais fazem — não há volta a dar. Dizê-lo é o mínimo. */
 export async function carregarModelo() {
   if (detetor) return { ok: true };
-  if (erroCarregamento) return { ok: false, erro: erroCarregamento };
+  if (erroCarregamento) return { ok: false, erro: erroCarregamento, peca: pecaEmFalta };
+
   try {
+    pecaEmFalta = "biblioteca";
     mod = await import(/* @vite-ignore */ CDN);
+
+    pecaEmFalta = "wasm";
     const vision = await mod.FilesetResolver.forVisionTasks(CDN + "/wasm");
-    detetor = await mod.HandLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: MODELO, delegate: "GPU" },
+
+    pecaEmFalta = "modelo";
+    /* GPU primeiro, CPU a seguir. A delegação GPU falha em WebViews e em
+       máquinas sem WebGL2, e nesses casos corre em CPU — mais devagar, mas
+       corre, que é melhor do que não haver ecrã nenhum. */
+    const opcoes = (delegate) => ({
+      baseOptions: { modelAssetPath: MODELO, delegate },
       runningMode: "VIDEO",
       numHands: 1
     });
+    try {
+      detetor = await mod.HandLandmarker.createFromOptions(vision, opcoes("GPU"));
+    } catch {
+      detetor = await mod.HandLandmarker.createFromOptions(vision, opcoes("CPU"));
+    }
+
+    pecaEmFalta = null;
     return { ok: true };
   } catch (e) {
     erroCarregamento = e.message || String(e);
-    return { ok: false, erro: erroCarregamento };
+    return { ok: false, erro: erroCarregamento, peca: pecaEmFalta };
   }
+}
+
+/** Qual das peças externas ficou por carregar, para a interface poder dizer
+ *  o que é preciso em vez de mostrar a mensagem do browser. */
+export let pecaEmFalta = null;
+
+export function explicarFalha(peca) {
+  return ({
+    biblioteca: ["Não foi possível carregar o MediaPipe",
+      "A biblioteca de deteção de mãos vem de cdn.jsdelivr.net e precisa de internet. Se a rede a bloquear, este ecrã não funciona."],
+    wasm: ["Não foi possível carregar o motor de deteção",
+      "O módulo WebAssembly do MediaPipe não chegou. Normalmente é rede, ou um browser antigo demais."],
+    modelo: ["Não foi possível carregar o modelo de mãos",
+      "O modelo vem de storage.googleapis.com. Algumas redes institucionais bloqueiam esse domínio — testa noutra rede ou com dados móveis."]
+  })[peca] || ["A deteção de mãos não arrancou", "Nenhuma das peças externas respondeu."];
 }
 
 export const modeloCarregado = () => !!detetor;
@@ -270,7 +310,12 @@ export function criarCaptura({ video, canvas, onResultado, onErro }) {
 
   async function iniciar() {
     const c = await carregarModelo();
-    if (!c.ok) { onErro && onErro(new Error(c.erro)); return false; }
+    if (!c.ok) {
+      const e = new Error(c.erro);
+      e.peca = c.peca;            // qual das peças externas faltou
+      onErro && onErro(e);
+      return false;
+    }
     if (ctx && mod?.DrawingUtils && !desenho) desenho = new mod.DrawingUtils(ctx);
 
     try {
