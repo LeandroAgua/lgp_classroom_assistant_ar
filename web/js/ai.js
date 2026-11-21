@@ -67,7 +67,46 @@ async function chamar(modelo, corpo, chave) {
    lado de quem usa, "a pensar muito" e "pendurado" são indistinguíveis. */
 const ORCAMENTO_MS = 40000;
 
-async function pedir(prompt, { json = true, maxTokens = 2048, temperatura = 0.2, onProgresso } = {}) {
+/* Recupera os objetos completos de um array JSON cortado a meio.
+
+   O modelo tem um teto de tokens na resposta. Batendo nele, a resposta é
+   cortada onde calhar — a meio de uma palavra, muitas vezes — e o JSON.parse
+   rejeita tudo, incluindo as dezenas de termos que vieram inteiros antes do
+   corte. Deitar fora um glossário quase completo por causa da última entrada
+   é o pior resultado possível: a app diz que falhou e o aluno fica sem nada.
+
+   Percorre o texto a contar chavetas, saltando as que estão dentro de
+   cadeias (uma explicação com "{" lá dentro desalinhava a contagem), e
+   devolve os objetos que fecharam. */
+function salvarObjetosDeArray(texto) {
+  const inicio = texto.indexOf("[");
+  if (inicio < 0) return null;
+
+  const objetos = [];
+  let nivel = 0, abertura = -1, emCadeia = false, escapado = false;
+
+  for (let i = inicio; i < texto.length; i++) {
+    const c = texto[i];
+    if (emCadeia) {
+      if (escapado) escapado = false;
+      else if (c === "\\") escapado = true;
+      else if (c === '"') emCadeia = false;
+      continue;
+    }
+    if (c === '"') { emCadeia = true; continue; }
+    if (c === "{") { if (nivel === 0) abertura = i; nivel++; }
+    else if (c === "}") {
+      nivel--;
+      if (nivel === 0 && abertura >= 0) {
+        try { objetos.push(JSON.parse(texto.slice(abertura, i + 1))); } catch { /* entrada estragada: segue */ }
+        abertura = -1;
+      }
+    }
+  }
+  return objetos.length ? objetos : null;
+}
+
+async function pedir(prompt, { json = true, maxTokens = 2048, temperatura = 0.2, onProgresso, recuperarLista = null } = {}) {
   const cfg = store.config();
   const chave = (cfg.geminiKey || "").trim();
   if (!chave) throw new Error("sem-chave");
@@ -101,14 +140,29 @@ async function pedir(prompt, { json = true, maxTokens = 2048, temperatura = 0.2,
 
       if (r.ok) {
         modeloEmUso = modelo;
-        const texto = r.dados?.candidates?.[0]?.content?.parts?.map(p => p.text).join("") || "";
+        const cand = r.dados?.candidates?.[0];
+        const texto = cand?.content?.parts?.map(p => p.text).join("") || "";
         if (!texto) throw new Error("resposta-vazia");
         if (!json) return texto;
+
         try {
           return JSON.parse(texto);
-        } catch {
+        } catch (e1) {
           const m = texto.match(/[[{][\s\S]*[\]}]/);   // às vezes vem embrulhado em ```
-          if (m) return JSON.parse(m[0]);
+          if (m) { try { return JSON.parse(m[0]); } catch { /* segue para a recuperação */ } }
+
+          /* Resposta cortada no teto de tokens: aproveitar o que veio inteiro
+             vale muito mais do que falhar com o lote todo. */
+          if (recuperarLista) {
+            const salvados = salvarObjetosDeArray(texto);
+            if (salvados) {
+              return {
+                [recuperarLista]: salvados,
+                truncado: cand?.finishReason === "MAX_TOKENS" ? "teto de tokens" : "resposta incompleta"
+              };
+            }
+          }
+          if (cand?.finishReason === "MAX_TOKENS") throw new Error("resposta-cortada");
           throw new Error("json-invalido");
         }
       }
@@ -190,7 +244,10 @@ export async function gerarGlossario(textoMaterial, { nomeFicheiro = "", onProgr
   }
 
   const prompt = montarPromptGlossario(recorte, nomeFicheiro);
-  const d = await pedir(prompt, { maxTokens: 4096, onProgresso });
+  /* 8192 e não 4096: 40 termos com explicação de duas frases dão perto de
+     8000 caracteres, e o teto anterior cortava a resposta a meio — era isso
+     que fazia a extração falhar com materiais grandes. */
+  const d = await pedir(prompt, { maxTokens: 8192, onProgresso, recuperarLista: "termos" });
 
   const termos = (d.termos || []).filter(t => t && t.termo).map(t => {
     const termo = String(t.termo).trim();
@@ -210,9 +267,11 @@ export async function gerarGlossario(textoMaterial, { nomeFicheiro = "", onProgr
   return {
     termos,
     origem: nomeFicheiro || "material da aula",
+    truncado: d.truncado || null,
     diagnostico: {
       caminho: "IAG",
       modelo: modeloEmUso,
+      truncado: d.truncado || null,
       prompt,
       respostaBruta: JSON.stringify(d, null, 2),
       ms: Math.round(performance.now() - t0),

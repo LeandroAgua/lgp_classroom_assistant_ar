@@ -353,6 +353,13 @@ async function gerarEGuardar(aula, texto, nome, caixa) {
     aula.material = { nome, submetidoPor: "aluno", texto: texto.slice(0, 40000) };
     aula.glossario = { geradoEm: Date.now(), origem: r.origem, termos: r.termos, diagnostico: r.diagnostico };
     store.guardarAula(aula);
+
+    /* A resposta do modelo veio cortada e foi recuperada em parte. O glossário
+       serve, mas o aluno tem de saber que pode faltar terminologia — senão um
+       termo em falta parece um erro da legendagem. */
+    if (r.truncado) {
+      toast(`Material grande: ficaram ${r.termos.length} termos, pode faltar algum.`);
+    }
     // O inspetor da extração é ferramenta de preparação. Fora do modo de
     // teste o destino natural é a própria aula, pronta a iniciar.
     location.hash = modoDev() ? `#/extracao/${aula.id}` : `#/aula/${aula.id}`;

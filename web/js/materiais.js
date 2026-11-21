@@ -77,13 +77,57 @@ async function lerPdf(ficheiro, onProgresso) {
       else if (it.str && !it.str.endsWith(" ")) txt += " ";
     }
 
-    /* Uma página de PDF de slides é um slide. É isto que faz a atribuição de
-       origem funcionar sem o docente ter de marcar nada à mão. */
-    partes.push(`[slide ${p}]\n${limpar(txt)}`);
+    partes.push(limpar(txt));
   }
 
+  const numPages = doc.numPages;
   await doc.destroy();
-  return { texto: partes.join("\n\n"), paginas: doc.numPages };
+
+  /* Uma página de PDF de slides é um slide. É isto que faz a atribuição de
+     origem funcionar sem o docente ter de marcar nada à mão. */
+  const limpas = semRepetidas(partes);
+  return {
+    texto: limpas.map((t, i) => `[slide ${i + 1}]\n${t}`).join("\n\n"),
+    paginas: numPages
+  };
+}
+
+/* Tira o cabeçalho e o rodapé que se repetem slide após slide.
+
+   Num PDF de slides, o título da cadeira, o nome do docente e o email vêm em
+   todas as páginas. São dezenas de repetições, e levam a extração a concluir
+   que "Objectos e Classes" e o nome do professor são a terminologia central
+   da aula — num material de 95 slides, o nome do docente aparece mais vezes
+   do que qualquer conceito.
+
+   O critério é a repetição, não uma lista de palavras: uma linha curta que
+   aparece em mais de metade dos slides é moldura, não conteúdo. O mínimo de
+   cinco slides evita estragar materiais pequenos, onde três páginas iguais
+   podem ser mesmo o assunto.
+
+   Os números saem da chave antes de contar. O rodapé habitual leva o número
+   do slide — "Marco Veloso – Programação 2", "… 3", "… 4" — e sem isso cada
+   linha é única e nenhuma se repete: o filtro não apanhava nada. */
+const semNumeros = l => l.trim().replace(/\d+/g, "#");
+
+function semRepetidas(paginas) {
+  if (paginas.length < 5) return paginas;
+
+  const contagem = new Map();
+  for (const pag of paginas) {
+    for (const linha of new Set(pag.split("\n").map(semNumeros))) {
+      if (linha.length < 3 || linha.length > 90) continue;
+      contagem.set(linha, (contagem.get(linha) || 0) + 1);
+    }
+  }
+
+  const limiar = Math.max(5, Math.ceil(paginas.length * 0.5));
+  const moldura = new Set([...contagem].filter(([, n]) => n >= limiar).map(([k]) => k));
+  if (!moldura.size) return paginas;
+
+  // Um slide que só tinha moldura fica vazio, e é isso mesmo: um separador.
+  return paginas.map(pag =>
+    pag.split("\n").filter(l => !moldura.has(semNumeros(l))).join("\n").trim());
 }
 
 /* ───────────────── DOCX ───────────────── */
