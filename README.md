@@ -60,14 +60,15 @@ estão escondidas.
 Para as ver, abrir **`#/dev`**. Fica um indicador permanente no canto
 inferior esquerdo e sai-se num toque. Ligado, aparecem:
 
-- chave e modelo da IAG, e o teste de modelos (`#/config`)
-- criar aulas e materiais de exemplo (`#/nova`)
+- escolher e testar modelos da IAG, dentro das definições
+- materiais de exemplo ao criar uma aula (`#/nova`)
 - inspetor da extração de termos (`#/extracao/<aula>`)
 - gravar gestos (`#/gestos`) e importar de imagens (`#/importar`)
 - modo de simulação da legendagem, e o alfabeto ASL no ecrã de perguntar
 
-A chave da IAG fica guardada depois de configurada, pelo que se liga o modo
-de teste uma vez para preparar e desliga-se a seguir.
+A chave da IAG **não** está aqui: configura-se na roda dentada da lista de
+aulas, sem modo de teste nenhum. É o que a app precisa para funcionar, e
+escondê-la deixava-a inutilizável para quem não soubesse do atalho.
 
 ## Licença
 

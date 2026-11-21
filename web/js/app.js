@@ -18,7 +18,7 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-21.3";
+export const VERSAO = "2026-11-21.4";
 
 /* O que está dentro da app para o ALUNO, e o que está lá para nós.
    Um aluno surdo numa aula precisa de: ver as aulas, iniciar a sessão, ler
@@ -85,7 +85,7 @@ function ecraAulas() {
     // Sem saudação com nome: "Olá, Rita" era a persona do relatório fixa no
     // código, e um nome que não é o de quem está a usar lê-se como erro.
     kicker: "", titulo: "Próximas aulas",
-    direita: modoDev() ? `<button class="icon-btn" id="btnCfg" aria-label="Definições" title="Definições">&#9881;</button>` : ""
+    direita: `<button class="icon-btn" id="btnCfg" aria-label="Definições" title="Definições">&#9881;</button>`
   });
 
   const aulas = store.aulas();
@@ -1465,7 +1465,9 @@ function ecraConfig() {
       <div class="field">
         <label for="key">Chave da API Gemini</label>
         <input id="key" type="password" value="${escapar(c.geminiKey)}" placeholder="AIza…" autocomplete="off">
+        <span class="muted small">Obtém-se em <b>aistudio.google.com</b>, na conta Google. Fica guardada só neste dispositivo.</span>
       </div>
+      ${modoDev() ? `
       <div class="field">
         <label for="modelo">Modelo</label>
         <div class="row" style="gap:8px">
@@ -1476,7 +1478,8 @@ function ecraConfig() {
         <span class="muted small">«Procurar» lista os modelos que a tua chave consegue chamar. «Testar todos» experimenta cada um e diz quais respondem agora.</span>
       </div>
       <button class="btn sec sm" id="testarTodos" style="width:100%">Testar todos os modelos</button>
-      <div id="modelos"></div>
+      <div id="modelos"></div>` : `
+      <input type="hidden" id="modelo" value="${escapar(c.modelo)}">`}
 
       <div class="row" style="gap:10px">
         <button class="btn" id="guardar">Guardar</button>
@@ -1489,7 +1492,7 @@ function ecraConfig() {
         Numa versão de produção as chamadas passariam por um servidor próprio — é lá que entraria também o vocabulário personalizado do reconhecimento de fala, que a Web Speech API não suporta.
       </div>
 
-      <a class="btn sec" href="#/gestos">Gravar gestos de LGP</a>
+      ${modoDev() ? `<a class="btn sec" href="#/gestos">Gravar gestos de LGP</a>` : ""}
 
       <button class="btn ghost" id="apagar">Apagar todos os dados locais</button>
 
@@ -1501,7 +1504,7 @@ function ecraConfig() {
 
   // Diagnóstico de uma linha: responde ao que costuma estar errado quando
   // "não acontece nada" — contexto inseguro, sem rede, sem chave.
-  (function diagnostico() {
+  function diagnostico() {
     const d = $("#diag");
     if (!d) return;
     const partes = [];
@@ -1509,14 +1512,18 @@ function ecraConfig() {
     partes.push(navigator.onLine === false ? "sem rede ✗" : "rede ✓");
     partes.push(store.config().geminiKey ? "chave guardada ✓" : "sem chave ✗");
     d.textContent = partes.join(" · ");
-  })();
+  }
+  diagnostico();
 
   $("#guardar").onclick = () => {
     store.guardarConfig({ geminiKey: $("#key").value.trim(), modelo: $("#modelo").value.trim() || "gemini-3.8-flash" });
+    // Repintar: a linha é lida a seguir a guardar, e continuar a dizer «sem
+    // chave» faz parecer que não guardou.
+    diagnostico();
     toast("Guardado.");
   };
 
-  $("#procurar").onclick = async () => {
+  $("#procurar") && ($("#procurar").onclick = async () => {
     const chave = $("#key").value.trim();
     if (!chave) return toast("Põe a chave primeiro.");
     store.guardarConfig({ geminiKey: chave });
@@ -1542,11 +1549,11 @@ function ecraConfig() {
     } catch (e) {
       $("#modelos").innerHTML = `<div class="notice danger" style="margin:0"><strong>Não foi possível listar</strong>${escapar(e.message)}</div>`;
     }
-  };
+  });
   /* Testa cada modelo candidato com um pedido mínimo. Distingue o que
      importa distinguir: 404 é um nome que não serve, 503 é um nome que
      serve mas está cheio. Sem isto, ambos pareciam «não funciona». */
-  $("#testarTodos").onclick = async () => {
+  $("#testarTodos") && ($("#testarTodos").onclick = async () => {
     const chave = $("#key").value.trim();
     if (!chave) return toast("Põe a chave primeiro.");
     store.guardarConfig({ geminiKey: chave });
@@ -1579,7 +1586,7 @@ function ecraConfig() {
       store.guardarConfig({ modelo: b.dataset.usar });
       toast(b.dataset.usar + " escolhido.");
     });
-  };
+  });
 
   $("#testar").onclick = async () => {
     store.guardarConfig({ geminiKey: $("#key").value.trim(), modelo: $("#modelo").value.trim() || "gemini-3.8-flash" });
@@ -1634,9 +1641,14 @@ const rotas = [
    aulas, para que um atalho antigo ou um recarregar não abra ferramentas.
 
    #/nova não está aqui: escolher a aula a que se vai assistir é do aluno.
+   #/config também não: a chave da IAG é o que a app precisa para funcionar,
+   e escondê-la atrás do modo de teste deixava a app inutilizável para quem
+   não soubesse do atalho. O que lá dentro é ferramenta — escolher e testar
+   modelos — continua escondido.
+
    O que o modo de teste guarda é o que vem depois — a extração passo a passo
    (#/extracao) e a importação de materiais (#/importar). */
-const ROTAS_DEV = [/^#\/gestos/, /^#\/importar/, /^#\/extracao/, /^#\/config/];
+const ROTAS_DEV = [/^#\/gestos/, /^#\/importar/, /^#\/extracao/];
 
 function indicadorDev() {
   const existe = $("#devChip");
