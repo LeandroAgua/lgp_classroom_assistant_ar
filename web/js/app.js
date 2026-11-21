@@ -11,13 +11,14 @@ import { falar, parar as pararFala, ttsDisponivel } from "./tts.js";
 import * as IA from "./ai.js";
 import { criarCamara } from "./camera.js";
 import { AMOSTRAS, amostra } from "./amostras.js";
+import * as MAT from "./materiais.js";
 import * as LGP from "./lgp.js";
 import * as IAASL from "./asl.js";
 
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-21.2";
+export const VERSAO = "2026-11-21.3";
 
 /* O que está dentro da app para o ALUNO, e o que está lá para nós.
    Um aluno surdo numa aula precisa de: ver as aulas, iniciar a sessão, ler
@@ -129,6 +130,82 @@ function ecraAulas() {
 
 /* ───────────────── nova aula ───────────────── */
 
+/* ───────────────── seletor de materiais ─────────────────
+   Partilhado por «criar aula» e «carregar os slides»: é o mesmo trabalho nos
+   dois sítios, e havia dois leitores de PDF diferentes a fazê-lo, cada um a
+   buscar o pdf.js por sua conta.
+
+   Rende-se dentro de `raiz` e devolve {lidos}. Chama `aoMudar` sempre que o
+   conjunto muda, para quem o usa acertar o botão de avançar. */
+function seletorMateriais(raiz, aoMudar) {
+  const materiais = [];                   // {nome, bytes, estado, texto, paginas, erro}
+
+  raiz.innerHTML = `
+    <div class="dropzone" tabindex="0" role="button">
+      <span class="ic">&#128196;</span>
+      <b>Escolher ficheiros</b>
+      <span class="muted small">PDF ou Word (.docx) · também podes arrastar para aqui</span>
+      <input type="file" multiple accept="${MAT.ACEITES}" hidden>
+    </div>
+    <div class="stack lista-fich" style="margin-top:10px"></div>`;
+
+  const zona = $(".dropzone", raiz), input = $("input[type=file]", raiz), lista = $(".lista-fich", raiz);
+  const lidos = () => materiais.filter(m => m.estado === "ok");
+
+  function pintar() {
+    lista.innerHTML = materiais.map((m, i) => `
+      <div class="ficheiro ${m.estado}">
+        <span class="ic">${m.estado === "erro" ? "&#9888;" : "&#128196;"}</span>
+        <span class="grow">
+          <b>${escapar(m.nome)}</b>
+          <span class="muted small">${
+            m.estado === "a-ler" ? escapar(m.progresso || "a ler…")
+            : m.estado === "erro" ? escapar(m.erro)
+            : `${MAT.tamanhoLegivel(m.bytes)}${m.paginas ? ` · ${m.paginas} slides` : ""} · ${m.texto.length.toLocaleString("pt-PT")} caracteres`
+          }</span>
+        </span>
+        <button class="icon-btn" data-remover="${i}" aria-label="Remover ${escapar(m.nome)}" title="Remover">&#10005;</button>
+      </div>`).join("");
+
+    $$("[data-remover]", lista).forEach(b => b.onclick = () => {
+      materiais.splice(+b.dataset.remover, 1);
+      pintar();
+    });
+
+    aoMudar && aoMudar({ prontos: lidos().length, aLer: materiais.some(m => m.estado === "a-ler") });
+  }
+
+  async function acrescentar(ficheiros) {
+    for (const f of ficheiros) {
+      if (materiais.some(m => m.nome === f.name && m.bytes === f.size)) continue;
+      const m = { nome: f.name, bytes: f.size, estado: "a-ler", texto: "", paginas: 0, erro: "" };
+      materiais.push(m);
+      pintar();
+
+      const r = await MAT.lerMaterial(f, (pag, tot) => {
+        m.progresso = `a ler a página ${pag} de ${tot}…`;
+        pintar();
+      });
+
+      if (r.ok) Object.assign(m, { estado: "ok", texto: r.texto, paginas: r.paginas });
+      else Object.assign(m, { estado: "erro", erro: r.erro });
+      pintar();
+
+      if (r.ok) aoMudar && aoMudar({ prontos: lidos().length, aLer: false, acabado: m });
+    }
+  }
+
+  input.onchange = () => { acrescentar([...input.files]); input.value = ""; };
+  zona.onclick = () => input.click();
+  zona.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } };
+  zona.ondragover = e => { e.preventDefault(); zona.classList.add("sobre"); };
+  zona.ondragleave = () => zona.classList.remove("sobre");
+  zona.ondrop = e => { e.preventDefault(); zona.classList.remove("sobre"); acrescentar([...e.dataTransfer.files]); };
+
+  pintar();
+  return { lidos };
+}
+
 function ecraNova() {
   marcarTab("aulas");
   topo({ kicker: "", titulo: modoDev() ? "Criar uma aula" : "Escolher a aula", voltar: "#/aulas" });
@@ -166,10 +243,12 @@ function ecraNova() {
           <div class="field"><label for="nUC">Unidade curricular</label><input id="nUC" placeholder="Sistemas Operativos"></div>
           <div class="field"><label for="nTitulo">Título da aula</label><input id="nTitulo" placeholder="Escalonamento de processos"></div>
           <div class="field"><label for="nDocente">Docente</label><input id="nDocente" placeholder="Nome do docente"></div>
-          <div class="field"><label for="nTexto">Texto dos slides</label>
-            <textarea id="nTexto" class="pergunta-box" style="font-size:14px;font-weight:400;min-height:160px" placeholder="Cola aqui o texto. Usa marcadores [slide 1], [slide 2]… se quiseres que a origem seja atribuída."></textarea>
+          <div class="field">
+            <label>Materiais da aula</label>
+            <div id="materiais"></div>
+            <span class="muted small">Cada página de um PDF conta como um slide, e é assim que a app sabe de que slide veio cada termo.</span>
           </div>
-          <button class="btn" id="btnCriar">Criar e extrair</button>
+          <button class="btn" id="btnCriar" disabled>Criar e extrair</button>
         </div>
       </details>
 
@@ -188,11 +267,37 @@ function ecraNova() {
     criarAula({ uc: am.uc, titulo: am.titulo, docente: am.docente, texto: am.texto, nome: `${am.id}.pdf` });
   });
 
+  /* ---- materiais: PDF e Word ---- */
+
+  const sel = seletorMateriais($("#materiais"), ({ prontos, aLer, acabado }) => {
+    const b = $("#btnCriar");
+    b.disabled = !prontos || aLer;
+    b.textContent = aLer ? "A ler os ficheiros…"
+      : prontos > 1 ? `Criar e extrair de ${prontos} ficheiros` : "Criar e extrair";
+
+    /* Com um só ficheiro vale a pena sugerir o título a partir do nome: poupa
+       escrita e acerta quase sempre, porque é assim que os docentes nomeiam os
+       ficheiros. Nunca por cima do que já lá está escrito. */
+    if (acabado && prontos === 1 && !$("#nTitulo").value.trim()) {
+      const sugestao = acabado.nome.replace(/\.(pdf|docx)$/i, "").replace(/[_-]+/g, " ").trim();
+      // "slides.pdf" e "aula3.docx" não dão título nenhum: sugerir isso era
+      // pior do que deixar o campo vazio, porque parece preenchido.
+      const generico = /^(slides?|aulas?|apontamentos?|documento|doc|ficheiro|untitled|sem t[ií]tulo)[\s\d]*$/i;
+      if (sugestao.length > 3 && !generico.test(sugestao)) $("#nTitulo").value = sugestao;
+    }
+  });
+
   $("#btnCriar").onclick = () => {
-    const uc = $("#nUC").value.trim(), titulo = $("#nTitulo").value.trim(), texto = $("#nTexto").value.trim();
+    const uc = $("#nUC").value.trim(), titulo = $("#nTitulo").value.trim();
+    const lidos = sel.lidos();
     if (!uc || !titulo) return toast("Preenche a unidade curricular e o título.");
-    if (texto.length < 100) return toast("Cola pelo menos um parágrafo de texto.");
-    criarAula({ uc, titulo, docente: $("#nDocente").value.trim() || "—", texto, nome: "texto colado" });
+    if (!lidos.length) return toast("Escolhe pelo menos um PDF ou .docx.");
+    criarAula({
+      uc, titulo,
+      docente: $("#nDocente").value.trim() || "—",
+      texto: MAT.juntar(lidos),
+      nome: lidos.length === 1 ? lidos[0].nome : `${lidos.length} ficheiros`
+    });
   };
 }
 
@@ -335,6 +440,12 @@ async function ecraPreparar(id) {
           </button>
         </div>
       `}
+
+      <!-- Discreto e no fim: é destrutivo, e quem abre esta aula vem para
+           assistir, não para a apagar. -->
+      <div class="rodape-perigo">
+        <button class="btn ghost danger" id="btnRemover">Remover esta aula</button>
+      </div>
     </div>`);
 
   $("#simToggle") && ($("#simToggle").onchange = (e) => {
@@ -374,6 +485,28 @@ async function ecraPreparar(id) {
       `<span class="chip">${escapar(t.termo)}<i class="conf${t.confianca < 0.9 ? " baixa" : ""}">${pct(t.confianca)}</i></span>`).join("");
     $("#verTodos").remove();
   });
+
+  /* Confirmação em dois passos, e não um confirm() do browser: diz quantas
+     sessões vão atrás, que é a parte que o utilizador não está a ver, e não
+     bloqueia a app num diálogo nativo dentro da WebView. */
+  $("#btnRemover") && ($("#btnRemover").onclick = () => {
+    const nSessoes = store.sessoes().filter(s => s.aulaId === a.id).length;
+    $(".rodape-perigo").innerHTML = `
+      <div class="notice danger" style="margin:0 0 10px">
+        <strong>Remover «${escapar(a.titulo)}»?</strong>
+        Apaga o glossário e os materiais desta aula${nSessoes ? `, e ${nSessoes} ${nSessoes === 1 ? "sessão gravada" : "sessões gravadas"} com os resumos` : ""}. Não há como voltar atrás.
+      </div>
+      <div class="row" style="gap:10px">
+        <button class="btn sec grow" id="btnCancelar">Cancelar</button>
+        <button class="btn danger grow" id="btnConfirmar">Remover</button>
+      </div>`;
+    $("#btnCancelar").onclick = () => ecraPreparar(a.id);
+    $("#btnConfirmar").onclick = () => {
+      const r = store.removerAula(a.id);
+      location.hash = "#/aulas";
+      toast(r ? `«${r.aula.titulo}» removida.` : "Aula já não existia.");
+    };
+  });
 }
 
 function iniciarSessao(aulaId) {
@@ -392,70 +525,31 @@ function ecraMaterial(id) {
 
   render(`
     <div class="screen">
-      <p class="muted">O texto dos slides serve para gerar o glossário da aula. O ficheiro não sai do dispositivo: só o texto extraído é enviado à IAG, e apenas se tiveres chave configurada.</p>
+      <p class="muted">Os slides servem para gerar o glossário da aula. Os ficheiros não saem do dispositivo: só o texto extraído é enviado à IAG, e apenas se tiveres chave configurada.</p>
 
-      <div class="dropzone" id="dz">
-        <div style="font-size:30px;opacity:.5">&#8681;</div>
-        <b>Toca para escolher um ficheiro</b>
-        <div class="muted small" style="margin-top:4px">PDF, TXT ou Markdown</div>
-        <input type="file" id="ficheiro" accept=".pdf,.txt,.md,text/plain" hidden>
-      </div>
-
-      <details class="card">
-        <summary style="cursor:pointer;font-weight:600">Ou colar o texto diretamente</summary>
-        <textarea id="colar" class="pergunta-box" style="margin-top:12px;font-size:15px;font-weight:400;min-height:160px" placeholder="Cola aqui o texto dos slides…"></textarea>
-        <button class="btn sm" id="btnColar" style="margin-top:10px;width:100%">Usar este texto</button>
-      </details>
+      <div id="materiais"></div>
+      <button class="btn" id="btnUsar" style="margin-top:14px" disabled>Extrair o glossário</button>
 
       <div id="estado"></div>
     </div>`);
 
-  const dz = $("#dz"), input = $("#ficheiro");
-  dz.onclick = () => input.click();
-  dz.ondragover = e => { e.preventDefault(); dz.classList.add("over"); };
-  dz.ondragleave = () => dz.classList.remove("over");
-  dz.ondrop = e => { e.preventDefault(); dz.classList.remove("over"); if (e.dataTransfer.files[0]) processar(e.dataTransfer.files[0]); };
-  input.onchange = () => input.files[0] && processar(input.files[0]);
-  $("#btnColar").onclick = () => {
-    const t = $("#colar").value.trim();
-    if (t.length < 50) return toast("Cola pelo menos um parágrafo de texto.");
-    gerar(t, "texto colado");
-  };
+  const sel = seletorMateriais($("#materiais"), ({ prontos, aLer }) => {
+    const b = $("#btnUsar");
+    b.disabled = !prontos || aLer;
+    b.textContent = aLer ? "A ler os ficheiros…"
+      : prontos > 1 ? `Extrair o glossário de ${prontos} ficheiros` : "Extrair o glossário";
+  });
 
-  async function processar(f) {
-    const estado = $("#estado");
-    estado.innerHTML = `<div class="notice info"><strong>A ler ${escapar(f.name)}</strong>A extrair o texto…</div>`;
-    try {
-      const texto = f.name.toLowerCase().endsWith(".pdf") ? await lerPDF(f) : await f.text();
-      if (!texto || texto.trim().length < 50) {
-        // RF17 — material sem texto extraível
-        estado.innerHTML = `<div class="notice warn"><strong>Sem texto extraível</strong>Este ficheiro parece ser só imagens. Usa a opção de colar o texto, ou pede ao docente uma versão com texto.</div>`;
-        return;
-      }
-      gerar(texto, f.name);
-    } catch (e) {
-      estado.innerHTML = `<div class="notice danger"><strong>Não foi possível ler o ficheiro</strong>${escapar(e.message || "erro desconhecido")}. Podes colar o texto em alternativa.</div>`;
-    }
-  }
+  $("#btnUsar").onclick = () => {
+    const lidos = sel.lidos();
+    if (!lidos.length) return toast("Escolhe pelo menos um PDF ou .docx.");
+    gerar(MAT.juntar(lidos), lidos.length === 1 ? lidos[0].nome : `${lidos.length} ficheiros`);
+  };
 
   // Segue para o inspetor da extração, que é onde se vê o que saiu e como.
   async function gerar(texto, nome) {
     await gerarEGuardar(a, texto, nome, $("#estado"));
   }
-}
-
-async function lerPDF(f) {
-  const V = "4.0.379";
-  const pdfjs = await import(/* @vite-ignore */ `https://cdn.jsdelivr.net/npm/pdfjs-dist@${V}/build/pdf.min.mjs`);
-  pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${V}/build/pdf.worker.min.mjs`;
-  const doc = await pdfjs.getDocument({ data: await f.arrayBuffer() }).promise;
-  let out = "";
-  for (let i = 1; i <= doc.numPages; i++) {
-    const p = await doc.getPage(i);
-    const tc = await p.getTextContent();
-    out += `\n[slide ${i}] ` + tc.items.map(it => it.str).join(" ");
-  }
-  return out;
 }
 
 /* ───────────────── inspetor da extração ─────────────────

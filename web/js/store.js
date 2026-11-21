@@ -58,6 +58,20 @@ export const store = {
     notificar();
     return aula;
   },
+  /* Remover a aula leva as sessões dela atrás. Deixá-las ficaria com sessões
+     órfãs no histórico, a apontar para uma aula que já não existe — e o ecrã
+     do resumo lê o título a partir dela. Devolve o que foi apagado, para a
+     interface poder dizer o que desapareceu. */
+  removerAula(id) {
+    const i = estado.aulas.findIndex(a => a.id === id);
+    if (i < 0) return null;
+    const aula = estado.aulas[i];
+    const sessoes = estado.sessoes.filter(s => s.aulaId === id).length;
+    estado.aulas.splice(i, 1);
+    estado.sessoes = estado.sessoes.filter(s => s.aulaId !== id);
+    notificar();
+    return { aula, sessoes };
+  },
 
   /* ---- sessões ---- */
   sessoes() {

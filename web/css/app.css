@@ -439,11 +439,6 @@ input[type="range"]::-moz-range-thumb{
 /* ───────── misc ───────── */
 .empty{text-align:center; padding:44px 20px; color:var(--mute)}
 .empty .big{font-size:36px; margin-bottom:10px; opacity:.5}
-.dropzone{
-  border:2px dashed var(--line); border-radius:var(--radius);
-  padding:30px 20px; text-align:center; background:var(--card); cursor:pointer;
-}
-.dropzone.over{border-color:var(--navy); background:var(--navy-50)}
 .progress{height:6px; background:var(--line); border-radius:3px; overflow:hidden}
 .progress i{display:block; height:100%; background:var(--navy); width:0; transition:width .3s}
 .field{display:flex; flex-direction:column; gap:6px}
@@ -640,3 +635,41 @@ input[type="range"]::-moz-range-thumb{
 }
 #devChip b{font-size:15px; line-height:1}
 #devChip:active{background:var(--warn-line); color:#fff}
+
+/* ───────────────── materiais da aula ─────────────────
+   A zona de escolha e a lista dos ficheiros lidos. O estado de cada ficheiro
+   vive na própria linha: a leitura de um PDF de 40 páginas demora, e sem isso
+   o ecrã parecia pendurado. */
+
+.dropzone{
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  padding:22px 16px; text-align:center; cursor:pointer;
+  border:1.5px dashed var(--line); border-radius:var(--radius-sm);
+  background:var(--card); color:inherit;
+}
+.dropzone:hover,
+.dropzone:focus-visible{border-color:var(--navy); background:var(--navy-50)}
+.dropzone.sobre{border-color:var(--navy); background:var(--navy-50); border-style:solid}
+.dropzone .ic{font-size:22px; line-height:1}
+.dropzone b{font-size:15px; font-weight:600; color:var(--navy)}
+
+.ficheiro{
+  display:flex; align-items:flex-start; gap:10px;
+  padding:11px 12px; border-radius:var(--radius-sm);
+  border:1.5px solid var(--line); background:var(--card);
+}
+.ficheiro .ic{font-size:17px; line-height:1.3; flex:0 0 auto}
+.ficheiro b{display:block; font-size:14px; font-weight:600; word-break:break-word}
+.ficheiro .small{display:block; margin-top:2px}
+.ficheiro.a-ler{border-style:dashed}
+.ficheiro.a-ler .ic{opacity:.5}
+.ficheiro.erro{border-color:var(--danger); background:var(--danger-bg)}
+.ficheiro.erro .ic{color:var(--danger)}
+.ficheiro.erro .small{color:var(--danger)}
+.ficheiro .icon-btn{flex:0 0 auto; margin:-4px -4px 0 0}
+
+/* Remover a aula: separado do resto por espaço, sem preenchimento a chamar
+   o dedo. Destrutivo tem de ser alcançável, não convidativo. */
+.rodape-perigo{margin-top:28px; padding-top:18px; border-top:1px solid var(--line)}
+.btn.ghost.danger{background:transparent; color:var(--danger); border-color:transparent}
+.btn.ghost.danger:active{background:var(--danger-bg)}
