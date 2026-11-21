@@ -18,7 +18,7 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-21.8";
+export const VERSAO = "2026-11-21.9";
 
 /* O que está dentro da app para o ALUNO, e o que está lá para nós.
    Um aluno surdo numa aula precisa de: ver as aulas, iniciar a sessão, ler
@@ -1332,7 +1332,17 @@ function ecraGestos() {
 
   render(`
     <div class="screen">
-      <div class="notice warn">
+      <!-- Dois modos, e a distinção é o ponto todo: um aprende o que lhe
+           mostrares, o outro já sabe um alfabeto que não é o nosso. Antes, o
+           alfabeto só existia dentro de uma sessão, atrás de «fazer uma
+           pergunta» — quem vinha a este ecrã esperar tradução via a câmara,
+           via a mão detetada, e nunca uma letra. -->
+      <div class="tabs" role="tablist" style="margin-bottom:14px">
+        <button role="tab" data-g="gravar" aria-selected="true">Gravar gestos</button>
+        <button role="tab" data-g="asl" aria-selected="false">Alfabeto ASL</button>
+      </div>
+
+      <div class="notice warn" id="avisoModo">
         <strong>A app não sabe LGP — aprende o que lhe mostrares</strong>
         Grava cada gesto sob a etiqueta que quiseres. Aprende o gesto correto antes de gravar, senão ensinas-lhe um erro e ela fica confiante nele.
       </div>
@@ -1345,7 +1355,20 @@ function ecraGestos() {
       </div>
       <div id="falhaGestos"></div>
 
-      <div class="field">
+      <div class="card" id="aslPainel" hidden>
+        <div class="row between" style="margin-bottom:8px">
+          <b>Soletrado</b>
+          <button class="btn ghost sm" id="aslLimpar" style="padding:0">Limpar</button>
+        </div>
+        <div class="soletrado" id="aslTexto">—</div>
+        <div class="muted small" style="margin-top:10px">
+          24 letras: o <b>J</b> e o <b>Z</b> precisam de movimento e ficam de fora.
+          Mantém a forma parada cerca de um segundo — só conta depois de dez
+          imagens seguidas de acordo, senão a passagem entre letras escrevia lixo.
+        </div>
+      </div>
+
+      <div class="field" id="painelGravar">
         <label for="etiqueta">Etiqueta do gesto</label>
         <input id="etiqueta" placeholder="SIM, OBRIGADO, REPETIR…" autocomplete="off">
         <div class="chips" style="margin-top:8px">
@@ -1353,7 +1376,7 @@ function ecraGestos() {
         </div>
       </div>
       <button class="btn" id="btnGravar" disabled>Gravar 20 amostras</button>
-      <a class="btn sec" href="#/importar">Importar de imagens, sem gravar</a>
+      <a class="btn sec" href="#/importar" id="lnkImportar">Importar de imagens, sem gravar</a>
 
       <div class="card" id="statsCard"></div>
 
@@ -1389,6 +1412,39 @@ function ecraGestos() {
   pintarStats();
 
   let vec = null;
+  let modoG = "gravar";                     // "gravar" | "asl"
+  let soletrado = "";
+  const suaveASL = LGP.criarSuavizador({ janela: 10, limiar: 0.6 });
+
+  function pintarModo() {
+    const asl = modoG === "asl";
+    $$("[data-g]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.g === modoG)));
+    $("#aslPainel").hidden = !asl;
+    $("#painelGravar").hidden = asl;
+    $("#btnGravar").hidden = asl;
+    $("#lnkImportar").hidden = asl;
+    $("#statsCard").hidden = asl;
+    $("#avisoModo").innerHTML = asl
+      ? `<strong>Alfabeto americano, não LGP</strong>Não existe modelo público do alfabeto da LGP, e este é de ASL — as formas são diferentes das portuguesas. Está aqui para mostrar que a cadeia funciona: câmara, pontos da mão, classificador, letra.`
+      : `<strong>A app não sabe LGP — aprende o que lhe mostrares</strong>Grava cada gesto sob a etiqueta que quiseres. Aprende o gesto correto antes de gravar, senão ensinas-lhe um erro e ela fica confiante nele.`;
+  }
+  pintarModo();
+
+  $$("[data-g]").forEach(b => b.onclick = async () => {
+    if (b.dataset.g === modoG) return;
+    modoG = b.dataset.g;
+    if (modoG === "asl") {
+      const c = await IAASL.carregarModeloASL();
+      if (!c.ok) {
+        $("#falhaGestos").innerHTML = `<div class="notice danger" style="margin:0"><strong>Não foi possível carregar o alfabeto</strong>${escapar(c.erro)}</div>`;
+        modoG = "gravar";
+      }
+    }
+    pintarModo();
+  });
+
+  $("#aslLimpar").onclick = () => { soletrado = ""; $("#aslTexto").textContent = "—"; };
+
   const captura = LGP.criarCaptura({
     video: $("#cam"), canvas: $("#pontos"),
     onResultado: (r) => {
@@ -1396,6 +1452,20 @@ function ecraGestos() {
       if (!chip) return;
       vec = r ? r.vec : null;
       chip.hidden = !r;
+
+      if (modoG === "asl") {
+        if (!r) { suaveASL.empurrar(null); return; }
+        const p = IAASL.classificarASL(r.raw, { largura: r.largura, altura: r.altura, mao: r.mao });
+        const st = suaveASL.empurrar(p);
+        chip.textContent = st.etiqueta ? `${st.etiqueta} · ${Math.round(st.confianca * 100)}%` : "mão detetada";
+        if (st.pronto && st.novo) {
+          soletrado += st.etiqueta;
+          suaveASL.confirmar(st.etiqueta);
+          $("#aslTexto").textContent = soletrado;
+        }
+        return;
+      }
+
       if (r) chip.textContent = r.previsao
         ? `${r.previsao.etiqueta} · ${Math.round(r.previsao.confianca * 100)}%`
         : "mão detetada";

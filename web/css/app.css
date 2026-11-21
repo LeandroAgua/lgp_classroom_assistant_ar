@@ -706,3 +706,16 @@ input[type="range"]::-moz-range-thumb{
   font-size:10.5px; font-weight:700; font-style:normal;
   white-space:nowrap; vertical-align:2px;
 }
+
+/* Letras soletradas no ensaio do alfabeto. Monoespaçado e espaçado, porque
+   o que se lê aqui é a sequência letra a letra e não uma palavra. */
+.soletrado{
+  font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;
+  font-size:24px; font-weight:700; letter-spacing:.14em;
+  color:var(--navy); word-break:break-all; min-height:30px;
+}
+
+/* O atributo hidden vale menos do que qualquer regra de display: um
+   .btn{display:inline-flex} continua à vista com hidden posto. Vale para
+   todo o lado onde se esconde um botão por atributo. */
+[hidden]{display:none !important}
