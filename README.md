@@ -26,11 +26,30 @@ cd web && python3 -m http.server 8000
 Abrir **http://localhost:8000** em Chrome ou Edge. Tem de ser servido e tem de
 ser `localhost`: a câmara e o microfone só funcionam em contexto seguro.
 
-Para a app Android, com JDK 17 e Android SDK 34:
+### Android
+
+No Android Studio: **Open**, escolher a pasta `android/` (não a raiz do
+repositório — o projeto Gradle é essa), esperar pela sincronização e correr
+com ▶.
+
+Ou pela linha de comandos, com JDK 17 e Android SDK 34:
 
 ```bash
 cd android && ./gradlew assembleDebug
 ```
+
+Notas que poupam tempo:
+
+- Os ficheiros de `web/` são copiados para os assets pela tarefa `copiarWeb`
+  antes de cada compilação. Não há cópia no repositório e não se editam os
+  assets: edita-se `web/` e volta-se a correr.
+- Num emulador, usar **API 33 ou superior**. A WebView das imagens antigas é
+  anterior ao que o leitor de PDF e o reconhecimento de fala precisam.
+- Microfone e câmara são pedidos à primeira utilização. No emulador, o
+  microfone tem de estar ligado em *Extended controls → Microphone*.
+- O reconhecimento de fala é do sistema, não da WebView: numa imagem de
+  emulador sem Google Play não existe. Para ver o fluxo sem microfone, usar o
+  modo de simulação (ver abaixo).
 
 ## Modo de teste
 
