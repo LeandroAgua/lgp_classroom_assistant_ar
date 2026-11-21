@@ -18,7 +18,7 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-21.7";
+export const VERSAO = "2026-11-21.8";
 
 /* O que está dentro da app para o ALUNO, e o que está lá para nós.
    Um aluno surdo numa aula precisa de: ver as aulas, iniciar a sessão, ler
@@ -29,6 +29,14 @@ export const VERSAO = "2026-11-21.7";
 
    Liga-se em #/dev, e enquanto está ligado há um indicador permanente. */
 const modoDev = () => !!store.config().modoDev;
+
+/* Abaixo deste valor a legenda é assinalada como incerta e a confiança do
+   termo aparece a amarelo. Estava escrito à mão em cinco sítios e o valor da
+   configuração não era lido por ninguém — passa a haver um só. */
+const limiar = () => {
+  const v = store.config().limiarConfianca;
+  return (typeof v === "number" && v > 0 && v <= 1) ? v : 0.9;
+};
 
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -433,7 +441,7 @@ async function ecraPreparar(id) {
           </div>
           <div class="chips" id="chips">
             ${a.glossario.termos.slice(0, 6).map(t =>
-              `<span class="chip">${escapar(t.termo)}<i class="conf${t.confianca < 0.9 ? " baixa" : ""}">${pct(t.confianca)}</i></span>`).join("")}
+              `<span class="chip">${escapar(t.termo)}<i class="conf${t.confianca < limiar() ? " baixa" : ""}">${pct(t.confianca)}</i></span>`).join("")}
           </div>
           <div class="row" style="gap:12px;margin-top:10px">
             ${a.glossario.termos.length > 6
@@ -507,7 +515,7 @@ async function ecraPreparar(id) {
   });
   $("#verTodos") && ($("#verTodos").onclick = () => {
     $("#chips").innerHTML = a.glossario.termos.map(t =>
-      `<span class="chip">${escapar(t.termo)}<i class="conf${t.confianca < 0.9 ? " baixa" : ""}">${pct(t.confianca)}</i></span>`).join("");
+      `<span class="chip">${escapar(t.termo)}<i class="conf${t.confianca < limiar() ? " baixa" : ""}">${pct(t.confianca)}</i></span>`).join("");
     $("#verTodos").remove();
   });
 
@@ -623,14 +631,14 @@ function ecraExtracao(id) {
       <div class="card">
         <div class="row between" style="margin-bottom:4px">
           <b>Termos</b>
-          <span class="muted small">confiança · ocorrências · slide</span>
+          <span class="muted small">é terminologia? · ocorrências · slide</span>
         </div>
         ${termos.map(t => `
           <div class="termo-linha">
             <div class="row" style="gap:8px;align-items:baseline">
               <b class="grow">${escapar(t.termo)}</b>
               ${typeof t.confianca === "number"
-                ? `<span class="conf${t.confianca < 0.9 ? " baixa" : ""}">${Math.round(t.confianca * 100)}%</span>` : ""}
+                ? `<span class="conf${t.confianca < limiar() ? " baixa" : ""}">${Math.round(t.confianca * 100)}%</span>` : ""}
               <span class="chip plain" style="padding:1px 7px;font-size:11px">${t.ocorrencias ?? "?"}×</span>
               ${t.slide ? `<span class="slide-ref">slide ${t.slide}</span>` : `<span class="slide-ref incerto">sem slide</span>`}
             </div>
@@ -718,11 +726,20 @@ function ecraSessao(sid) {
   const elLegenda = $("#legenda"), elParcial = $("#parcial"), elEstado = $("#estadoSess");
 
   function pintar() {
-    elLegenda.innerHTML = s.linhas.map(l => `
-      <div class="linha">
+    /* Duas incertezas diferentes, e só esta pertence à legenda: a confiança
+       com que o reconhecedor ouviu este segmento. É o que diz ao aluno onde
+       não deve confiar no que está a ler. */
+    const lim = limiar();
+    elLegenda.innerHTML = s.linhas.map(l => {
+      const incerta = typeof l.confianca === "number" && l.confianca < lim;
+      return `
+      <div class="linha${incerta ? " incerta" : ""}"${incerta
+        ? ` title="O reconhecimento ouviu esta frase com ${Math.round(l.confianca * 100)}% de confiança."` : ""}>
         <span class="t">${horas(l.t)}</span>
-        <span class="txt">${marcar(l.texto, indice)}</span>
-      </div>`).join("");
+        <span class="txt">${marcar(l.texto, indice, { selo: false })}${
+          incerta ? `<i class="marca-incerta" aria-label="frase mal ouvida">${Math.round(l.confianca * 100)}%</i>` : ""}</span>
+      </div>`;
+    }).join("");
     window.scrollTo(0, document.body.scrollHeight);
   }
   pintar();
@@ -888,7 +905,7 @@ async function abrirTermo(termo, s, a) {
       <div class="row between" style="margin-bottom:8px">
         <h3 style="margin:0">${escapar(termo)}</h3>
         ${dados && typeof dados.confianca === "number"
-          ? `<span class="badge ${dados.confianca < 0.9 ? "warn" : "ok"}">${pct(dados.confianca)} de confiança</span>` : ""}
+          ? `<span class="badge ${dados.confianca < limiar() ? "warn" : "ok"}" title="Confiança com que a IAG classificou isto como terminologia da disciplina. Não mede se o reconhecimento ouviu bem.">termo da disciplina · ${pct(dados.confianca)}</span>` : ""}
       </div>
       <div class="corpo" id="corpoTermo"><span class="muted">A procurar…</span></div>
       <button class="btn sec" id="fecharTermo" style="margin-top:20px">Fechar</button>
@@ -1610,6 +1627,13 @@ function ecraConfig() {
 
       ${modoDev() ? `<a class="btn sec" href="#/gestos">Gravar gestos de LGP</a>` : ""}
 
+      ${modoDev() ? `
+      <div class="field">
+        <label for="limiar">Limiar de confiança · <b id="limiarVal">${Math.round(limiar() * 100)}%</b></label>
+        <input type="range" id="limiar" min="50" max="99" step="1" value="${Math.round(limiar() * 100)}">
+        <span class="muted small">Abaixo deste valor a legenda é assinalada como mal ouvida, e a confiança de um termo aparece a amarelo. Serve para calibrar com gravações reais: demasiado alto marca tudo, demasiado baixo não marca nada.</span>
+      </div>` : ""}
+
       <button class="btn ghost" id="apagar">Apagar todos os dados locais</button>
 
       <div class="muted small" style="text-align:center;padding-top:4px">
@@ -1630,6 +1654,12 @@ function ecraConfig() {
     d.textContent = partes.join(" · ");
   }
   diagnostico();
+
+  $("#limiar") && ($("#limiar").oninput = (e) => {
+    const v = Number(e.target.value);
+    $("#limiarVal").textContent = v + "%";
+    store.guardarConfig({ limiarConfianca: v / 100 });
+  });
 
   $("#guardar").onclick = () => {
     store.guardarConfig({ geminiKey: $("#key").value.trim(), modelo: $("#modelo").value.trim() || "gemini-3.8-flash" });

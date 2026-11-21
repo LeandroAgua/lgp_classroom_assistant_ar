@@ -7,8 +7,14 @@ glossário extraído dos materiais da própria aula. O aluno toca num termo
 técnico para ver o significado, pode colocar uma pergunta que a app diz em voz
 alta à turma, e no fim recebe um resumo e uma ficha de revisão.
 
-Cada termo do glossário aparece com o seu grau de confiança, para que o aluno
-saiba onde não deve confiar na transcrição.
+As legendas assinalam o que foi mal ouvido: um segmento reconhecido abaixo do
+limiar de confiança fica sublinhado a tracejado e com a percentagem à vista.
+É esta a incerteza que importa a quem está a ler.
+
+A confiança que acompanha cada termo do glossário mede outra coisa — o quanto
+a IAG tem a certeza de que aquilo é terminologia da disciplina e não linguagem
+corrente — e por isso aparece só onde se inspeciona o glossário, nunca colada
+a uma palavra na legenda.
 
 ## Estrutura
 

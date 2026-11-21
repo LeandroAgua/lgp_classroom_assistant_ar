@@ -95,10 +95,18 @@ export function encontrar(texto, indice) {
 }
 
 /** Converte um texto em HTML com os termos do glossário marcados.
- *  A baixa confiança NÃO é marcada aqui: assinalar palavra a palavra torna a
- *  legenda ilegível, que é precisamente o contrário do objetivo. O segmento
- *  inteiro é assinalado pela classe da linha, em app.js. */
-export function marcar(texto, indice) {
+ *
+ *  A incerteza do RECONHECIMENTO não é marcada aqui: assinalar palavra a
+ *  palavra torna a legenda ilegível, que é o contrário do objetivo. O
+ *  segmento inteiro é assinalado pela classe da linha, em app.js.
+ *
+ *  `selo` liga a percentagem ao lado do termo. Na legenda ao vivo vai
+ *  desligada: aquele número é a confiança com que a IAG classificou o termo
+ *  como terminologia da disciplina, e colado a uma palavra numa legenda
+ *  lia-se como «94% de certeza de que foi isto que o professor disse» — que
+ *  é outra coisa, e que aquele número não mede. Fica onde significa alguma
+ *  coisa: nos ecrãs onde se inspeciona o glossário. */
+export function marcar(texto, indice, { selo = true } = {}) {
   const brutos = (texto || "").split(/(\s+)/).filter(x => x.length);
   const palavras = [];
   const mapa = [];                              // índice de palavra → índice em brutos
@@ -126,9 +134,9 @@ export function marcar(texto, indice) {
       const m = txt.match(/^(.*?)([.,;:!?)\]]*)$/s);
       const nucleo = m[1] || txt, cauda = m[2] || "";
       const c = hit.termo.confianca;
-      const selo = (typeof c === "number")
+      const emblema = (selo && typeof c === "number")
         ? `<i class="conf${c < 0.9 ? " baixa" : ""}">${Math.round(c * 100)}%</i>` : "";
-      out += `<span class="termo" role="button" tabindex="0" data-termo="${escapar(hit.termo.termo)}">${escapar(nucleo)}${selo}</span>${escapar(cauda)}`;
+      out += `<span class="termo" role="button" tabindex="0" data-termo="${escapar(hit.termo.termo)}">${escapar(nucleo)}${emblema}</span>${escapar(cauda)}`;
     } else {
       out += escapar(b);
     }

@@ -685,3 +685,24 @@ input[type="range"]::-moz-range-thumb{
   transition:width .1s linear;
 }
 .nivel-mic .small{flex:0 0 auto}
+
+/* ───────── incerteza do reconhecimento ─────────
+   Distinta do realce de termo, que é um fundo amarelo cheio: aqui é um
+   sublinhado a tracejado sob a frase inteira, porque o que está em causa é o
+   segmento todo e não uma palavra. Marcar palavra a palavra tornava a
+   legenda ilegível, que é o contrário do objetivo.
+
+   O sublinhado leva cor E tracejado: a cor sozinha não serve a quem não a
+   distingue, e esta app é de acessibilidade. */
+.linha.incerta .txt{
+  text-decoration:underline dotted var(--low-line);
+  text-underline-offset:4px;
+  text-decoration-thickness:2px;
+}
+.marca-incerta{
+  margin-left:7px; padding:1px 6px; border-radius:999px;
+  background:var(--low); color:var(--danger);
+  border:1px solid var(--low-line);
+  font-size:10.5px; font-weight:700; font-style:normal;
+  white-space:nowrap; vertical-align:2px;
+}
