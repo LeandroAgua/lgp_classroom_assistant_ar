@@ -20,16 +20,21 @@ export const SEED = {
 
    É uma lista única, e não um guião por aula: as aulas passaram a ser criadas
    pelo utilizador, com identificadores gerados, por isso não havia por onde
-   indexar. */
+   indexar.
+
+   Os termos vão em português, os mesmos que saem dos materiais em amostras.js.
+   Antes estavam em inglês — "class", "inheritance", "polymorphism" — e isso
+   fazia o realce falhar: o glossário é extraído de slides em português, por
+   isso não havia nada na legenda que casasse com ele. */
 export const GUIAO_SIMULACAO = [
   "Bom, vamos continuar de onde ficámos na semana passada.",
-  "Já vimos que uma class pode herdar de outra.",
-  "A isso chamamos inheritance.",
-  "Hoje interessa-me outra coisa, que é o polymorphism.",
-  "Reparem nesta superclass Animal.",
-  "Cada subclass faz override do método emitirSom.",
-  "Isto chama-se polymorphism e permite que o mesmo método tenha implementações diferentes.",
-  "Atenção que overloading não é polimorfismo: aí muda a method signature.",
+  "Já vimos que uma classe pode herdar de outra.",
+  "A isso chamamos herança.",
+  "Hoje interessa-me outra coisa, que é o polimorfismo.",
+  "Reparem nesta superclasse Animal.",
+  "Cada subclasse faz a sua própria redefinição do método emitirSom.",
+  "A isto chama-se ligação dinâmica: é a classe concreta do objeto que decide qual a implementação corre.",
+  "Atenção que a sobrecarga não é polimorfismo: aí o que muda é a assinatura do método.",
   "Uma interface define o contrato, mas não diz como se implementa.",
-  "Quando criamos uma instance, é a classe concreta que decide o comportamento."
+  "Quando criamos uma instância, é a classe concreta que decide o comportamento."
 ];

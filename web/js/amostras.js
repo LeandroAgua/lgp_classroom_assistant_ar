@@ -19,7 +19,7 @@ export const AMOSTRAS = [
     docente: "Miguel Antunes",
     termosEsperados: [
       "polimorfismo", "classe", "superclasse", "subclasse", "herança",
-      "interface", "override", "sobrecarga", "assinatura", "instância",
+      "interface", "redefinição", "sobrecarga", "assinatura", "instância",
       "encapsulamento", "classe abstrata", "upcasting", "ligação dinâmica"
     ],
     texto: `
@@ -60,10 +60,10 @@ sobre uma referência da superclasse, é a classe concreta do objeto que
 decide qual a implementação executada. Isto chama-se ligação dinâmica, e
 acontece em tempo de execução, não em tempo de compilação.
 
-[slide 14] Override
-Fazer override é redefinir, numa subclasse, um método que já existe na
-superclasse. A assinatura mantém-se igual; muda o corpo. É isto que torna o
-polimorfismo possível.
+[slide 14] Redefinição de métodos
+A redefinição consiste em dar, numa subclasse, um novo corpo a um método que
+já existe na superclasse. A assinatura mantém-se igual; muda o corpo. É isto
+que torna o polimorfismo possível. Em inglês diz-se override.
 
 [slide 15] Sobrecarga não é polimorfismo
 Sobrecarga é ter vários métodos com o mesmo nome mas assinaturas diferentes

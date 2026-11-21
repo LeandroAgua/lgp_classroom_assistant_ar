@@ -17,7 +17,7 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-21.1";
+export const VERSAO = "2026-11-21.2";
 
 /* O que está dentro da app para o ALUNO, e o que está lá para nós.
    Um aluno surdo numa aula precisa de: ver as aulas, iniciar a sessão, ler
@@ -113,15 +113,13 @@ function ecraAulas() {
         </button>`).join("") : `
         <div class="empty">
           <div class="big">&#9707;</div>
-          <p>Ainda não tens aulas.<br>Começa por criar uma e carregar os slides.</p>
+          <p>Ainda não tens aulas.<br>Escolhe a aula a que vais assistir.</p>
         </div>`}
 
-      ${/* Com aulas, criar é tarefa de preparação e fica no modo de teste.
-            Sem aulas nenhumas, esconder o botão deixava a app sem saída: um
-            ecrã vazio e nada para carregar. Um estado vazio tem sempre de
-            oferecer a ação que o resolve. */
-        (modoDev() || !aulas.length)
-          ? `<button class="btn ${aulas.length ? "sec" : ""}" id="btnNova">+ Nova aula</button>` : ""}
+      ${/* Sempre visível: é por aqui que o aluno escolhe a aula a que vai
+            assistir, de entre as que estão preparadas. Secundário quando já
+            há aulas na lista, porque aí a ação principal é abrir uma. */
+        `<button class="btn ${aulas.length ? "sec" : ""}" id="btnNova">${modoDev() ? "+ Nova aula" : "+ Escolher aula"}</button>`}
     </div>`);
 
   $$("[data-aula]").forEach(b => b.onclick = () => location.hash = `#/aula/${b.dataset.aula}`);
@@ -133,31 +131,37 @@ function ecraAulas() {
 
 function ecraNova() {
   marcarTab("aulas");
-  topo({ kicker: "Nova", titulo: "Criar uma aula", voltar: "#/aulas" });
+  topo({ kicker: "", titulo: modoDev() ? "Criar uma aula" : "Escolher a aula", voltar: "#/aulas" });
 
   render(`
     <div class="screen">
       <p class="muted">${modoDev()
         ? "Cria uma aula e gera-lhe o glossário. Os materiais de exemplo são texto fixo, o que os torna úteis para comparar a extração com e sem IAG sobre exatamente a mesma entrada."
-        : "Cria a aula e cola o texto dos slides. É daí que sai o glossário que vai contextualizar as legendas."}</p>
+        : "Escolhe a aula a que vais assistir. O glossário é extraído dos materiais dessa aula, e é ele que vai contextualizar as legendas."}</p>
 
-      ${modoDev() ? `
+      <!-- As aulas preparadas aparecem a todos. Escondê-las do aluno obrigava-o
+           a colar o texto dos slides à mão antes de poder assistir à aula, o
+           que é trabalho de quem prepara, não de quem assiste. O que fica só
+           no modo de teste são as contagens de caracteres e termos esperados,
+           que servem para medir a extração e nada dizem ao aluno. -->
       <div class="card">
-        <b>Material de exemplo</b>
+        <b>${modoDev() ? "Material de exemplo" : "Aulas preparadas"}</b>
         <div class="stack" style="margin-top:12px">
           ${AMOSTRAS.map(a => `
             <button class="choice" data-amostra="${a.id}">
               <span class="ic">&#9634;</span>
               <span class="grow">
                 <b>${escapar(a.uc)} · ${escapar(a.titulo)}</b>
-                <span>${a.texto.length} caracteres · ${(a.texto.match(/\[slide \d+\]/g) || []).length} slides · ~${a.termosEsperados.length} termos esperados</span>
+                <span>${modoDev()
+                  ? `${a.texto.length} caracteres · ${(a.texto.match(/\[slide \d+\]/g) || []).length} slides · ~${a.termosEsperados.length} termos esperados`
+                  : `${escapar(a.docente)} · ${(a.texto.match(/\[slide \d+\]/g) || []).length} slides`}</span>
               </span>
             </button>`).join("")}
         </div>
-      </div>` : ""}
+      </div>
 
-      <details class="card" ${modoDev() ? "" : "open"}>
-        <summary style="cursor:pointer;font-weight:600">${modoDev() ? "Ou criar de raiz" : "Dados da aula"}</summary>
+      <details class="card">
+        <summary style="cursor:pointer;font-weight:600">${modoDev() ? "Ou criar de raiz" : "Ou criar outra aula"}</summary>
         <div class="stack" style="margin-top:14px">
           <div class="field"><label for="nUC">Unidade curricular</label><input id="nUC" placeholder="Sistemas Operativos"></div>
           <div class="field"><label for="nTitulo">Título da aula</label><input id="nTitulo" placeholder="Escalonamento de processos"></div>
@@ -172,9 +176,16 @@ function ecraNova() {
       <div id="estado"></div>
     </div>`);
 
-  $$("[data-amostra]").forEach(b => b.onclick = () => {   // vazio fora do modo de teste
+  $$("[data-amostra]").forEach(b => b.onclick = () => {
     const am = amostra(b.dataset.amostra);
-    if (am) criarAula({ uc: am.uc, titulo: am.titulo, docente: am.docente, texto: am.texto, nome: `${am.id}.pdf` });
+    if (!am) return;
+
+    /* Escolher a mesma aula duas vezes abria uma segunda cópia e voltava a
+       gastar uma extração. Já estando na lista, escolher é abrir. */
+    const ja = store.aulas().find(a => a.uc === am.uc && a.titulo === am.titulo);
+    if (ja) { location.hash = `#/aula/${ja.id}`; return; }
+
+    criarAula({ uc: am.uc, titulo: am.titulo, docente: am.docente, texto: am.texto, nome: `${am.id}.pdf` });
   });
 
   $("#btnCriar").onclick = () => {
@@ -1519,8 +1530,12 @@ const rotas = [
 ];
 
 /* Rotas que só existem em modo de teste. Fora dele devolvem à lista de
-   aulas, para que um atalho antigo ou um recarregar não abra ferramentas. */
-const ROTAS_DEV = [/^#\/gestos/, /^#\/importar/, /^#\/extracao/, /^#\/nova/, /^#\/config/];
+   aulas, para que um atalho antigo ou um recarregar não abra ferramentas.
+
+   #/nova não está aqui: escolher a aula a que se vai assistir é do aluno.
+   O que o modo de teste guarda é o que vem depois — a extração passo a passo
+   (#/extracao) e a importação de materiais (#/importar). */
+const ROTAS_DEV = [/^#\/gestos/, /^#\/importar/, /^#\/extracao/, /^#\/config/];
 
 function indicadorDev() {
   const existe = $("#devChip");
@@ -1548,10 +1563,7 @@ function encaminhar() {
   pararFala();
   const h = location.hash || "#/aulas";
 
-  // Exceção: sem nenhuma aula, criar a primeira é a única saída possível,
-  // por isso #/nova deixa de estar fechada ao aluno.
-  const permitida = h.startsWith("#/nova") && !store.aulas().length;
-  if (!modoDev() && !permitida && ROTAS_DEV.some(re => re.test(h))) { location.hash = "#/aulas"; return; }
+  if (!modoDev() && ROTAS_DEV.some(re => re.test(h))) { location.hash = "#/aulas"; return; }
   indicadorDev();
 
   for (const [re, fn] of rotas) {
