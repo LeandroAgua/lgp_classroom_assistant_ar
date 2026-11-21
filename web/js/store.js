@@ -2,7 +2,11 @@
    Não há servidor: tudo o que o utilizador produz fica no dispositivo.
    É uma decisão de privacidade, não só de arquitetura — ver README. */
 
-const CHAVE = "contexto.v1";
+/* A chave sobe de versão quando o estado inicial muda de forma incompatível.
+   Aqui, v1 guardava as três aulas de demonstração: quem já abriu a app tem-nas
+   no armazenamento do browser, e mudar o seed não as removeria. Subir a chave
+   faz essas instalações arrancarem limpas. */
+const CHAVE = "contexto.v2";
 
 const vazio = () => ({
   aulas: [],

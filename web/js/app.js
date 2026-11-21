@@ -4,7 +4,7 @@
    a pergunta é escrita. Ver camera.js. */
 
 import { store } from "./store.js";
-import { SEED, SIMULACAO } from "./seed.js";
+import { SEED, GUIAO_SIMULACAO } from "./seed.js";
 import { indexar, marcar, escapar } from "./glossary.js";
 import { criarASR, asrDisponivel, verificarMicrofone, verificarRede } from "./asr.js";
 import { falar, parar as pararFala, ttsDisponivel } from "./tts.js";
@@ -17,7 +17,7 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-14.11";
+export const VERSAO = "2026-11-21.1";
 
 /* O que está dentro da app para o ALUNO, e o que está lá para nós.
    Um aluno surdo numa aula precisa de: ver as aulas, iniciar a sessão, ler
@@ -81,7 +81,9 @@ const pct = c => typeof c === "number" ? Math.round(c * 100) + "%" : "";
 function ecraAulas() {
   marcarTab("aulas");
   topo({
-    kicker: "Olá, Rita", titulo: "Próximas aulas",
+    // Sem saudação com nome: "Olá, Rita" era a persona do relatório fixa no
+    // código, e um nome que não é o de quem está a usar lê-se como erro.
+    kicker: "", titulo: "Próximas aulas",
     direita: modoDev() ? `<button class="icon-btn" id="btnCfg" aria-label="Definições" title="Definições">&#9881;</button>` : ""
   });
 
@@ -109,9 +111,17 @@ function ecraAulas() {
             ? `<span class="badge ok dot">Glossário pronto · ${a.glossario.termos.length} termos</span>`
             : `<span class="badge warn dot">Sem materiais submetidos</span>`}
         </button>`).join("") : `
-        <div class="empty"><div class="big">&#9707;</div><p>Ainda não há aulas.</p></div>`}
+        <div class="empty">
+          <div class="big">&#9707;</div>
+          <p>Ainda não tens aulas.<br>Começa por criar uma e carregar os slides.</p>
+        </div>`}
 
-      ${modoDev() ? `<button class="btn sec" id="btnNova">+ Nova aula</button>` : ""}
+      ${/* Com aulas, criar é tarefa de preparação e fica no modo de teste.
+            Sem aulas nenhumas, esconder o botão deixava a app sem saída: um
+            ecrã vazio e nada para carregar. Um estado vazio tem sempre de
+            oferecer a ação que o resolve. */
+        (modoDev() || !aulas.length)
+          ? `<button class="btn ${aulas.length ? "sec" : ""}" id="btnNova">+ Nova aula</button>` : ""}
     </div>`);
 
   $$("[data-aula]").forEach(b => b.onclick = () => location.hash = `#/aula/${b.dataset.aula}`);
@@ -127,8 +137,11 @@ function ecraNova() {
 
   render(`
     <div class="screen">
-      <p class="muted">Cria uma aula e gera-lhe o glossário. Os materiais de exemplo são texto fixo, o que os torna úteis para comparar a extração com e sem IAG sobre exatamente a mesma entrada.</p>
+      <p class="muted">${modoDev()
+        ? "Cria uma aula e gera-lhe o glossário. Os materiais de exemplo são texto fixo, o que os torna úteis para comparar a extração com e sem IAG sobre exatamente a mesma entrada."
+        : "Cria a aula e cola o texto dos slides. É daí que sai o glossário que vai contextualizar as legendas."}</p>
 
+      ${modoDev() ? `
       <div class="card">
         <b>Material de exemplo</b>
         <div class="stack" style="margin-top:12px">
@@ -141,10 +154,10 @@ function ecraNova() {
               </span>
             </button>`).join("")}
         </div>
-      </div>
+      </div>` : ""}
 
-      <details class="card">
-        <summary style="cursor:pointer;font-weight:600">Ou criar de raiz</summary>
+      <details class="card" ${modoDev() ? "" : "open"}>
+        <summary style="cursor:pointer;font-weight:600">${modoDev() ? "Ou criar de raiz" : "Dados da aula"}</summary>
         <div class="stack" style="margin-top:14px">
           <div class="field"><label for="nUC">Unidade curricular</label><input id="nUC" placeholder="Sistemas Operativos"></div>
           <div class="field"><label for="nTitulo">Título da aula</label><input id="nTitulo" placeholder="Escalonamento de processos"></div>
@@ -159,7 +172,7 @@ function ecraNova() {
       <div id="estado"></div>
     </div>`);
 
-  $$("[data-amostra]").forEach(b => b.onclick = () => {
+  $$("[data-amostra]").forEach(b => b.onclick = () => {   // vazio fora do modo de teste
     const am = amostra(b.dataset.amostra);
     if (am) criarAula({ uc: am.uc, titulo: am.titulo, docente: am.docente, texto: am.texto, nome: `${am.id}.pdf` });
   });
@@ -224,7 +237,9 @@ async function gerarEGuardar(aula, texto, nome, caixa) {
     aula.material = { nome, submetidoPor: "aluno", texto: texto.slice(0, 40000) };
     aula.glossario = { geradoEm: Date.now(), origem: r.origem, termos: r.termos, diagnostico: r.diagnostico };
     store.guardarAula(aula);
-    location.hash = `#/extracao/${aula.id}`;
+    // O inspetor da extração é ferramenta de preparação. Fora do modo de
+    // teste o destino natural é a própria aula, pronta a iniciar.
+    location.hash = modoDev() ? `#/extracao/${aula.id}` : `#/aula/${aula.id}`;
     return true;
   } catch (e) {
     parar();
@@ -606,7 +621,7 @@ function ecraSessao(sid) {
   });
 
   function arrancarSimulacao() {
-    const guiao = SIMULACAO[s.aulaId] || SIMULACAO["prog-6"];
+    const guiao = GUIAO_SIMULACAO;
     simTimer = setInterval(() => {
       acrescentar(guiao[simIdx % guiao.length], 0.86 + Math.random() * 0.12);
       simIdx++;
@@ -1533,7 +1548,10 @@ function encaminhar() {
   pararFala();
   const h = location.hash || "#/aulas";
 
-  if (!modoDev() && ROTAS_DEV.some(re => re.test(h))) { location.hash = "#/aulas"; return; }
+  // Exceção: sem nenhuma aula, criar a primeira é a única saída possível,
+  // por isso #/nova deixa de estar fechada ao aluno.
+  const permitida = h.startsWith("#/nova") && !store.aulas().length;
+  if (!modoDev() && !permitida && ROTAS_DEV.some(re => re.test(h))) { location.hash = "#/aulas"; return; }
   indicadorDev();
 
   for (const [re, fn] of rotas) {
