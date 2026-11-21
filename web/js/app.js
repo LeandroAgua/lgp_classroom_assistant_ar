@@ -18,7 +18,7 @@ import * as IAASL from "./asl.js";
 /* Marcador de versão. Serve para responder, sem adivinhar, à pergunta
    "estarei a correr o código novo?" — que é a primeira coisa a confirmar
    quando um botão não faz nada. Aparece no fundo das Definições. */
-export const VERSAO = "2026-11-21.10";
+export const VERSAO = "2026-11-21.11";
 
 /* O que está dentro da app para o ALUNO, e o que está lá para nós.
    Um aluno surdo numa aula precisa de: ver as aulas, iniciar a sessão, ler
@@ -982,7 +982,12 @@ function abrirPergunta(s) {
     desenhar();
 
     function textoRecolhido() {
-      return modo === "asl" ? soletrado : sequencia.join(" ");
+      if (modo === "asl") return soletrado;
+      /* Etiquetas de uma letra são soletração, e soletrar junta-se sem
+         espaços: com o alfabeto gravado, "O L A" não é uma palavra. Com
+         etiquetas de palavra — SIM, OBRIGADO — o espaço é que faz falta. */
+      const soLetras = sequencia.length && sequencia.every(x => x.length === 1);
+      return sequencia.join(soLetras ? "" : " ");
     }
 
     function trocarModo(m) {
@@ -1340,7 +1345,8 @@ function ecraGestos() {
            pergunta» — quem vinha a este ecrã esperar tradução via a câmara,
            via a mão detetada, e nunca uma letra. -->
       <div class="tabs" role="tablist" style="margin-bottom:14px">
-        <button role="tab" data-g="gravar" aria-selected="true">Gravar gestos</button>
+        <button role="tab" data-g="gravar" aria-selected="true">Gestos</button>
+        <button role="tab" data-g="alfabeto" aria-selected="false">Alfabeto LGP</button>
         <button role="tab" data-g="asl" aria-selected="false">Alfabeto ASL</button>
       </div>
 
@@ -1356,6 +1362,30 @@ function ecraGestos() {
         <div class="camera-hint" id="hint">A carregar a deteção de mãos…</div>
       </div>
       <div id="falhaGestos"></div>
+
+      <!-- Assistente do alfabeto LGP. Não há modelo público, mas há 26 formas
+           de mão e uma câmara: em dez minutos fica um classificador treinado
+           por quem o vai usar. Aprende quem grava, e isso tem de ser dito. -->
+      <div class="card" id="alfPainel" hidden>
+        <div class="row between" style="margin-bottom:10px">
+          <b id="alfTitulo">Alfabeto LGP</b>
+          <span class="muted small" id="alfProgresso"></span>
+        </div>
+        <div class="alf-letra" id="alfLetra">A</div>
+        <div class="muted small" id="alfNota" style="margin-top:6px"></div>
+        <div class="row" style="gap:10px;margin-top:14px">
+          <button class="btn sec grow" id="alfAnterior">◀</button>
+          <button class="btn grow" id="alfGravar" style="flex:2">Gravar</button>
+          <button class="btn sec grow" id="alfSeguinte">▶</button>
+        </div>
+        <div class="chips" id="alfGrelha" style="margin-top:14px"></div>
+        <div class="muted small" style="margin-top:10px">
+          Faz a forma, mantém-na parada e carrega em gravar: são 20 imagens em
+          dois segundos, e avança sozinho para a letra seguinte. Grava cada
+          letra com a mão em posições ligeiramente diferentes — um classificador
+          que só viu uma pose falha assim que a mão roda.
+        </div>
+      </div>
 
       <div class="card" id="aslPainel" hidden>
         <div class="row between" style="margin-bottom:8px">
@@ -1418,19 +1448,68 @@ function ecraGestos() {
   let soletrado = "";
   const suaveASL = LGP.criarSuavizador({ janela: 10, limiar: 0.6 });
 
+  let alfIdx = 0;
+
+  function pintarAlfabeto() {
+    const letra = LGP.ALFABETO_LGP[alfIdx];
+    const st = LGP.estatisticas();
+    const porLetra = new Map(st.etiquetas);
+    const feitas = LGP.ALFABETO_LGP.filter(l => porLetra.get(l) >= 10).length;
+
+    $("#alfLetra").textContent = letra;
+    $("#alfProgresso").textContent = `${feitas} de ${LGP.ALFABETO_LGP.length} gravadas`;
+    $("#alfNota").innerHTML = LGP.LETRAS_COM_MOVIMENTO.has(letra)
+      ? `<b>${letra}</b> faz-se com movimento. Uma forma parada não a representa, e gravá-la ensina ao classificador um instante arbitrário do gesto. Salta, ou grava sabendo disso.`
+      : `${porLetra.get(letra) || 0} amostras gravadas para esta letra.`;
+
+    $("#alfGrelha").innerHTML = LGP.ALFABETO_LGP.map((l, i) => {
+      const n = porLetra.get(l) || 0;
+      return `<button class="chip${n >= 10 ? "" : " plain"}${i === alfIdx ? " atual" : ""}" data-alf="${i}">${l}${n ? `<i class="conf">${n}</i>` : ""}</button>`;
+    }).join("");
+    $$("[data-alf]").forEach(b => b.onclick = () => { alfIdx = +b.dataset.alf; pintarAlfabeto(); });
+  }
+
   function pintarModo() {
-    const asl = modoG === "asl";
+    const asl = modoG === "asl", alf = modoG === "alfabeto";
     $$("[data-g]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.g === modoG)));
     $("#aslPainel").hidden = !asl;
-    $("#painelGravar").hidden = asl;
-    $("#btnGravar").hidden = asl;
-    $("#lnkImportar").hidden = asl;
+    $("#alfPainel").hidden = !alf;
+    $("#painelGravar").hidden = asl || alf;
+    $("#btnGravar").hidden = asl || alf;
+    $("#lnkImportar").hidden = asl || alf;
     $("#statsCard").hidden = asl;
     $("#avisoModo").innerHTML = asl
       ? `<strong>Alfabeto americano, não LGP</strong>Não existe modelo público do alfabeto da LGP, e este é de ASL — as formas são diferentes das portuguesas. Está aqui para mostrar que a cadeia funciona: câmara, pontos da mão, classificador, letra.`
+      : alf
+      ? `<strong>O alfabeto que gravares, é o que ela sabe</strong>Não existe modelo público do alfabeto da LGP, por isso este é treinado por ti, aqui. Aprende a tua mão: reconhece-te a ti melhor do que a outra pessoa, e isso tem de constar do relatório.`
       : `<strong>A app não sabe LGP — aprende o que lhe mostrares</strong>Grava cada gesto sob a etiqueta que quiseres. Aprende o gesto correto antes de gravar, senão ensinas-lhe um erro e ela fica confiante nele.`;
+    if (alf) pintarAlfabeto();
   }
   pintarModo();
+
+  $("#alfAnterior").onclick = () => { alfIdx = (alfIdx + LGP.ALFABETO_LGP.length - 1) % LGP.ALFABETO_LGP.length; pintarAlfabeto(); };
+  $("#alfSeguinte").onclick = () => { alfIdx = (alfIdx + 1) % LGP.ALFABETO_LGP.length; pintarAlfabeto(); };
+
+  $("#alfGravar").onclick = async () => {
+    const letra = LGP.ALFABETO_LGP[alfIdx];
+    const b = $("#alfGravar");
+    b.disabled = true;
+    let gravadas = 0;
+    for (let i = 0; i < 20; i++) {
+      if (vec) { LGP.adicionarAmostra(letra, vec); gravadas++; }
+      b.textContent = `${letra} · ${i + 1}/20`;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    b.textContent = "Gravar";
+    b.disabled = false;
+    if (!gravadas) { toast("Nenhuma mão detetada — aproxima a mão da câmara."); pintarAlfabeto(); return; }
+    toast(`${letra}: ${gravadas} amostras.`);
+    // Avançar sozinho: gravar 26 letras a carregar em «seguinte» entre cada
+    // uma são 26 toques a mais, com a mão ocupada a fazer a forma.
+    if (alfIdx < LGP.ALFABETO_LGP.length - 1) alfIdx++;
+    pintarAlfabeto();
+    pintarStats();
+  };
 
   $$("[data-g]").forEach(b => b.onclick = async () => {
     if (b.dataset.g === modoG) return;

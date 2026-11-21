@@ -35,6 +35,18 @@ const CHAVE_AMOSTRAS = "contexto.lgp.amostras.v2";
 /** Sugestões de etiquetas úteis numa aula. São só etiquetas: o gesto que
  *  fica associado a cada uma é o que o utilizador gravar. Aprendam o gesto
  *  correto antes de gravar, ou ensinam-se erros à app com toda a confiança. */
+/* O alfabeto manual da LGP, para o assistente de gravação.
+
+   O J, o X e o Z levam movimento e não se distinguem por forma de mão — o
+   classificador aqui é de formas paradas. Ficam na lista para quem quiser
+   tentar, mas marcados, porque gravá-los ensina ao classificador um instante
+   arbitrário do movimento e ele fica confiante num erro. */
+export const ALFABETO_LGP = [
+  "A","B","C","D","E","F","G","H","I","J","K","L","M",
+  "N","O","P","Q","R","S","T","U","V","W","X","Y","Z"
+];
+export const LETRAS_COM_MOVIMENTO = new Set(["J", "X", "Z"]);
+
 export const VOCABULARIO_SUGERIDO = [
   "SIM", "NÃO", "OBRIGADO", "REPETIR",
   "NÃO-PERCEBI", "MAIS-DEVAGAR", "PORQUÊ", "EXEMPLO"

@@ -719,3 +719,12 @@ input[type="range"]::-moz-range-thumb{
    .btn{display:inline-flex} continua à vista com hidden posto. Vale para
    todo o lado onde se esconde um botão por atributo. */
 [hidden]{display:none !important}
+
+/* Assistente do alfabeto: a letra a gravar, grande, porque quem a lê tem a
+   mão ocupada a fazer a forma e o telemóvel apoiado a alguma distância. */
+.alf-letra{
+  font-size:64px; font-weight:800; line-height:1;
+  color:var(--navy); text-align:center; letter-spacing:.02em;
+}
+.chip.atual{outline:2px solid var(--navy); outline-offset:1px}
+.chip .conf{margin-left:5px; opacity:.65; font-style:normal; font-size:10px}
