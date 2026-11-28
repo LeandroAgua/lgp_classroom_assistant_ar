@@ -84,7 +84,8 @@ const ICONE = {
   fechar: SVG('<path d="M18 6 6 18M6 6l12 12"/>'),
   aulas: SVG('<path d="M2 4.5h6a4 4 0 0 1 4 4V20a3 3 0 0 0-3-3H2z"/><path d="M22 4.5h-6a4 4 0 0 0-4 4V20a3 3 0 0 1 3-3h7z"/>'),
   sessao: SVG('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 11h3M13 11h4M7 15h6M16 15h1"/>'),
-  historico: SVG('<path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M12 7.5V12l3.5 2"/>')
+  historico: SVG('<path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M12 7.5V12l3.5 2"/>'),
+  lixo: SVG('<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M9 7V4h6v3"/>')
 };
 
 function render(html) { app.innerHTML = html; window.scrollTo(0, 0); }
@@ -457,7 +458,13 @@ async function ecraPreparar(id) {
   const a = store.aula(id);
   if (!a) return (location.hash = "#/aulas");
   marcarTab("aulas");
-  topo({ kicker: `${a.uc} · Aula ${a.numero}`, titulo: a.titulo, voltar: "#/aulas" });
+  /* Remover também no topo: o botão do rodapé só aparece depois de descer
+     para lá do «Iniciar sessão», e quem quer apagar uma aula que criou por
+     engano não o encontrava. Os dois levam à mesma confirmação. */
+  topo({
+    kicker: `${a.uc} · Aula ${a.numero}`, titulo: a.titulo, voltar: "#/aulas",
+    direita: `<button class="icon-btn perigo" id="btnRemoverTopo" aria-label="Remover esta aula" title="Remover esta aula">${ICONE.lixo}</button>`
+  });
 
   const cfg = store.config();
   const temGloss = !!a.glossario;
@@ -596,9 +603,11 @@ async function ecraPreparar(id) {
   /* Confirmação em dois passos, e não um confirm() do browser: diz quantas
      sessões vão atrás, que é a parte que o utilizador não está a ver, e não
      bloqueia a app num diálogo nativo dentro da WebView. */
-  $("#btnRemover") && ($("#btnRemover").onclick = () => {
+  function pedirRemocao() {
+    const rodape = $(".rodape-perigo");
+    if (!rodape) return;
     const nSessoes = store.sessoes().filter(s => s.aulaId === a.id).length;
-    $(".rodape-perigo").innerHTML = `
+    rodape.innerHTML = `
       <div class="notice danger" style="margin:0 0 10px">
         <strong>Remover «${escapar(a.titulo)}»?</strong>
         Apaga o glossário e os materiais desta aula${nSessoes ? `, e ${nSessoes} ${nSessoes === 1 ? "sessão gravada" : "sessões gravadas"} com os resumos` : ""}. Não há como voltar atrás.
@@ -613,7 +622,15 @@ async function ecraPreparar(id) {
       location.hash = "#/aulas";
       toast(r ? `«${r.aula.titulo}» removida.` : "Aula já não existia.");
     };
-  });
+    // Vindo do botão do topo, a confirmação fica fora do ecrã: levar lá a
+    // vista, e o foco para «Cancelar», que é a escolha segura.
+    const reduzido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    rodape.scrollIntoView({ block: "center", behavior: reduzido ? "auto" : "smooth" });
+    $("#btnCancelar").focus({ preventScroll: true });
+  }
+
+  $("#btnRemover") && ($("#btnRemover").onclick = pedirRemocao);
+  $("#btnRemoverTopo") && ($("#btnRemoverTopo").onclick = pedirRemocao);
 }
 
 function iniciarSessao(aulaId, { nova = false } = {}) {

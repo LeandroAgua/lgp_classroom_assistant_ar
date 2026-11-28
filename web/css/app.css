@@ -143,6 +143,9 @@ button{font:inherit}
 .icon-btn:hover{background:var(--navy-50); color:var(--navy)}
 .icon-btn:active{background:var(--navy-100)}
 #topbarRight{display:flex; gap:4px; flex:0 0 auto}
+/* Ação destrutiva no topo: neutra em repouso, vermelha ao apontar. */
+.icon-btn.perigo:hover{background:var(--danger-bg); color:var(--danger)}
+.icon-btn.perigo:active{background:var(--danger-bg); color:var(--danger)}
 
 /* ───────── layout ───────── */
 #app{padding:18px 16px 20px; max-width:720px; margin:0 auto}
