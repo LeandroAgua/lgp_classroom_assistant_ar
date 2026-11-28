@@ -870,3 +870,31 @@ body:has(.sess-actions) #devChip{
 }
 .chip.atual{outline:2px solid var(--navy); outline-offset:1px}
 .chip .conf{margin-left:5px; opacity:.65; font-style:normal; font-size:10px}
+
+/* Explicação do glossário, recolhida por omissão: quem quer saber de onde vêm
+   os termos e o que mede a percentagem abre; quem quer assistir à aula não
+   tem de a ler. */
+.explica{
+  margin-top:14px; padding-top:12px; border-top:1px solid var(--line);
+  font-size:14px; line-height:1.55; color:var(--ink-2);
+}
+.explica summary{
+  display:flex; align-items:center; gap:8px; cursor:pointer; list-style:none;
+  color:var(--navy); font-weight:650; font-size:14px;
+}
+.explica summary::-webkit-details-marker{display:none}
+.explica summary::before{
+  content:"?"; flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center;
+  width:20px; height:20px; border-radius:50%;
+  background:var(--navy-50); border:1px solid var(--navy-100);
+  font-size:12px; font-weight:800;
+}
+.explica summary::after{content:"⌄"; margin-left:auto; opacity:.7; transition:transform .18s}
+.explica[open] summary::after{transform:rotate(180deg)}
+.explica-corpo{margin-top:10px}
+.explica-corpo p{margin:0 0 9px}
+.explica-corpo p:last-child{margin-bottom:0}
+.explica-corpo b{color:var(--ink)}
+.explica-corpo .conf{margin-left:0}
+.explica-corpo code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px}
+@media (prefers-reduced-motion: reduce){ .explica summary::after{transition:none} }

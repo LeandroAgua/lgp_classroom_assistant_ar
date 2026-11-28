@@ -393,6 +393,64 @@ async function gerarEGuardar(aula, texto, nome, caixa) {
   }
 }
 
+/* ───────────────── glossário: etiquetas e explicação ─────────────────
+   A percentagem ao lado de cada termo é a confiança com que a IAG o
+   classificou como terminologia da disciplina. Sem chave da IAG os termos vêm
+   de uma regra local e não têm confiança nenhuma: aí não se mostra etiqueta,
+   em vez de um «!» vazio que se lia como «confiança baixa». */
+
+function chipTermo(t) {
+  const temConf = typeof t.confianca === "number";
+  const baixa = temConf && t.confianca < limiar();
+  const dica = temConf
+    ? `A IAG tem ${pct(t.confianca)} de certeza de que isto é um termo da disciplina${baixa ? " — abaixo do limite, confirma nos slides" : ""}.`
+    : "Termo encontrado pela regra local, sem medida de confiança.";
+  return `<span class="chip" title="${escapar(dica)}">${escapar(t.termo)}${temConf
+    ? `<i class="conf${baixa ? " baixa" : ""}">${pct(t.confianca)}</i>` : ""}</span>`;
+}
+
+/* Diz ao aluno de onde vêm os termos e o que a percentagem mede — e o que não
+   mede. O texto segue o caminho que gerou ESTE glossário (IAG ou regra local),
+   que fica guardado no diagnóstico da extração. */
+function explicacaoGlossario(g) {
+  const termos = g.termos || [];
+  const comConf = termos.filter(t => typeof t.confianca === "number");
+  const viaIA = g.diagnostico ? g.diagnostico.caminho === "IAG" : comConf.length > 0;
+  const lim = Math.round(limiar() * 100);
+
+  if (!viaIA) {
+    return `
+      <p><b>De onde vêm.</b> Não há chave da IAG configurada, por isso os termos foram
+      encontrados por uma regra simples, aplicada no próprio dispositivo: palavras com
+      5 ou mais letras que se repetem pelo menos duas vezes no material e que não estão
+      numa lista de palavras correntes do português. Pares de palavras repetidos contam
+      mais. Ficam no máximo os 24 mais fortes.</p>
+      <p><b>Porque não têm percentagem.</b> Nada avalia estes termos: a regra só conta
+      repetições. Alguns podem ser palavras comuns e pode faltar terminologia que aparece
+      só uma vez. Também não trazem explicação nem o slide de onde vêm.</p>
+      <p class="muted small">Com uma chave da IAG, nas definições, a extração passa a
+      identificar a terminologia, explicá-la e dizer o slide.</p>`;
+  }
+
+  const abaixo = comConf.filter(t => t.confianca < limiar()).length;
+  const modelo = g.diagnostico && g.diagnostico.modelo ? ` (<code>${escapar(g.diagnostico.modelo)}</code>)` : "";
+  return `
+    <p><b>De onde vêm.</b> O texto dos materiais da aula foi enviado à IAG${modelo},
+    com a instrução de identificar só a terminologia técnica da disciplina — não
+    linguagem corrente nem nomes de pessoas — e de devolver, para cada termo, uma
+    explicação curta baseada apenas no material e o slide onde aparece.</p>
+    <p><b>O que quer dizer a percentagem.</b> É a própria IAG a dizer quão certa está
+    de que aquilo é um termo da disciplina e não uma palavra corrente. Não diz se a
+    explicação está certa, nem se a legendagem vai ouvir bem o termo durante a aula.</p>
+    <p><span class="conf">${lim}%</span> ou mais: termo seguro.
+    <span class="conf baixa">abaixo de ${lim}%</span>: a IAG hesitou — confirma nos slides
+    ou com o docente.</p>
+    <p class="muted small">${abaixo
+      ? `${abaixo} de ${comConf.length} termos ${abaixo === 1 ? "está" : "estão"} abaixo de ${lim}%.`
+      : `Todos os ${comConf.length} termos estão em ${lim}% ou mais.`}
+    ${comConf.length < termos.length ? ` ${termos.length - comConf.length} sem confiança indicada pela IAG.` : ""}</p>`;
+}
+
 /* ───────────────── E03 · preparar a sessão ───────────────── */
 
 async function ecraPreparar(id) {
@@ -454,14 +512,17 @@ async function ecraPreparar(id) {
             <span class="muted">${a.glossario.termos.length}</span>
           </div>
           <div class="chips" id="chips">
-            ${a.glossario.termos.slice(0, 6).map(t =>
-              `<span class="chip">${escapar(t.termo)}<i class="conf${t.confianca < limiar() ? " baixa" : ""}">${pct(t.confianca)}</i></span>`).join("")}
+            ${a.glossario.termos.slice(0, 6).map(chipTermo).join("")}
           </div>
           <div class="row" style="gap:12px;margin-top:10px">
             ${a.glossario.termos.length > 6
               ? `<button class="btn ghost sm" id="verTodos" style="padding-left:0">ver todos (${a.glossario.termos.length})</button>` : ""}
             ${modoDev() ? `<a class="btn ghost sm" href="#/extracao/${a.id}" style="padding-left:0">como foi extraído</a>` : ""}
           </div>
+          <details class="explica">
+            <summary>Como são obtidos estes termos e o que quer dizer a percentagem?</summary>
+            <div class="explica-corpo">${explicacaoGlossario(a.glossario)}</div>
+          </details>
         </div>
         ${jaFoi ? "" : `<button class="btn" id="btnIniciar">&#9654; ${ativa ? "Retomar a sessão" : "Iniciar sessão"}</button>`}
       ` : jaFoi ? "" : `
@@ -528,8 +589,7 @@ async function ecraPreparar(id) {
     setTimeout(() => iniciarSessao(a.id), 900);
   });
   $("#verTodos") && ($("#verTodos").onclick = () => {
-    $("#chips").innerHTML = a.glossario.termos.map(t =>
-      `<span class="chip">${escapar(t.termo)}<i class="conf${t.confianca < limiar() ? " baixa" : ""}">${pct(t.confianca)}</i></span>`).join("");
+    $("#chips").innerHTML = a.glossario.termos.map(chipTermo).join("");
     $("#verTodos").remove();
   });
 
