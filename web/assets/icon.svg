@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ConTexto">
-  <rect width="512" height="512" rx="112" fill="#1F4E79"/>
+  <rect width="512" height="512" rx="112" fill="#3451D1"/>
   <path d="M112 136h288a24 24 0 0 1 24 24v168a24 24 0 0 1-24 24H246l-74 58v-58h-60a24 24 0 0 1-24-24V160a24 24 0 0 1 24-24z" fill="#FFFFFF"/>
-  <rect x="150" y="186" width="150" height="20" rx="10" fill="#1F4E79"/>
+  <rect x="150" y="186" width="150" height="20" rx="10" fill="#3451D1"/>
   <rect x="150" y="230" width="212" height="20" rx="10" fill="#FFD966"/>
-  <rect x="150" y="274" width="120" height="20" rx="10" fill="#1F4E79"/>
+  <rect x="150" y="274" width="120" height="20" rx="10" fill="#3451D1"/>
 </svg>

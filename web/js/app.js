@@ -74,6 +74,19 @@ function marcarTab(nome) {
   if (t) t.setAttribute("aria-current", "page");
 }
 
+/* Ícones em SVG de traço, com a cor do texto (currentColor). Substituem os
+   caracteres Unicode (◫ ▢ ↻ ⚙), que mudavam de forma e tamanho de sistema
+   para sistema. Decorativos: o significado vem sempre do texto ou do
+   aria-label do botão. */
+const SVG = d => `<svg class="ico-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${d}</svg>`;
+const ICONE = {
+  ajustes: SVG('<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>'),
+  fechar: SVG('<path d="M18 6 6 18M6 6l12 12"/>'),
+  aulas: SVG('<path d="M2 4.5h6a4 4 0 0 1 4 4V20a3 3 0 0 0-3-3H2z"/><path d="M22 4.5h-6a4 4 0 0 0-4 4V20a3 3 0 0 1 3-3h7z"/>'),
+  sessao: SVG('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 11h3M13 11h4M7 15h6M16 15h1"/>'),
+  historico: SVG('<path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M12 7.5V12l3.5 2"/>')
+};
+
 function render(html) { app.innerHTML = html; window.scrollTo(0, 0); }
 
 const horas = ts => new Date(ts).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
@@ -93,7 +106,7 @@ function ecraAulas() {
     // Sem saudação com nome: "Olá, Rita" era a persona do relatório fixa no
     // código, e um nome que não é o de quem está a usar lê-se como erro.
     kicker: "", titulo: "Próximas aulas",
-    direita: `<button class="icon-btn" id="btnCfg" aria-label="Definições" title="Definições">&#9881;</button>`
+    direita: `<button class="icon-btn" id="btnCfg" aria-label="Definições" title="Definições">${ICONE.ajustes}</button>`
   });
 
   const aulas = store.aulas();
@@ -121,7 +134,7 @@ function ecraAulas() {
             : `<span class="badge warn dot">Sem materiais submetidos</span>`}
         </button>`).join("") : `
         <div class="empty">
-          <div class="big">&#9707;</div>
+          <div class="big">${ICONE.aulas}</div>
           <p>Ainda não tens aulas.<br>Escolhe a aula a que vais assistir.</p>
         </div>`}
 
@@ -172,7 +185,7 @@ function seletorMateriais(raiz, aoMudar) {
             : `${MAT.tamanhoLegivel(m.bytes)}${m.paginas ? ` · ${m.paginas} slides` : ""} · ${m.texto.length.toLocaleString("pt-PT")} caracteres`
           }</span>
         </span>
-        <button class="icon-btn" data-remover="${i}" aria-label="Remover ${escapar(m.nome)}" title="Remover">&#10005;</button>
+        <button class="icon-btn" data-remover="${i}" aria-label="Remover ${escapar(m.nome)}" title="Remover">${ICONE.fechar}</button>
       </div>`).join("");
 
     $$("[data-remover]", lista).forEach(b => b.onclick = () => {
@@ -691,7 +704,7 @@ function ecraSessao(sid) {
     kicker: `${a?.uc || ""} · Aula ${a?.numero || ""}`,
     titulo: a?.titulo || "Sessão",
     voltar: "#/aulas",
-    direita: `<button class="icon-btn" id="btnAjustes" aria-label="Ajustes da legenda" title="Ajustes da legenda">&#9881;</button>`
+    direita: `<button class="icon-btn" id="btnAjustes" aria-label="Ajustes da legenda" title="Ajustes da legenda">${ICONE.ajustes}</button>`
   });
 
   render(`
@@ -1299,7 +1312,7 @@ function ecraRevisao(sid) {
           <button class="btn ghost sm" data-resp="${i}" style="padding-left:0">Mostrar resposta</button>
           <div class="a" id="resp${i}" hidden>${escapar(q.resposta)}</div>
         </div>`).join("")}</div>`
-      : `<div class="empty"><div class="big">&#9634;</div><p>Sem ficha de revisão para esta sessão.${IA.temChave() ? "" : " Configura uma chave da IAG para a gerar."}</p></div>`}
+      : `<div class="empty"><div class="big">${ICONE.sessao}</div><p>Sem ficha de revisão para esta sessão.${IA.temChave() ? "" : " Configura uma chave da IAG para a gerar."}</p></div>`}
     </div>`);
 
   $$("[data-resp]").forEach(b => b.onclick = () => {
@@ -1325,7 +1338,7 @@ function ecraHistorico() {
           <div class="aula-titulo" style="margin:4px 0 4px">${escapar(a?.uc || "Sessão")}</div>
           <div class="muted small">${escapar((s.resumo?.pontos?.[0]?.texto || a?.titulo || "").slice(0, 90))}</div>
         </button>`;
-      }).join("") : `<div class="empty"><div class="big">&#8635;</div><p>Ainda não terminaste nenhuma sessão.</p></div>`}
+      }).join("") : `<div class="empty"><div class="big">${ICONE.historico}</div><p>Ainda não terminaste nenhuma sessão.</p></div>`}
     </div>`);
 
   $$("[data-sessao]").forEach(b => b.onclick = () => location.hash = `#/resumo/${b.dataset.sessao}`);

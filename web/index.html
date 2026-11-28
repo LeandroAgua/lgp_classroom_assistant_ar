@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-<meta name="theme-color" content="#1F4E79">
+<meta name="theme-color" content="#3451D1">
 <meta name="description" content="ConTexto — assistente de sala de aula para estudantes surdos: legendagem contextualizada pelo glossário da aula.">
 <title>ConTexto</title>
 <link rel="manifest" href="manifest.webmanifest">
@@ -13,7 +13,7 @@
 <body>
 
 <header id="topbar" hidden>
-  <button id="btnBack" class="icon-btn" aria-label="Voltar">&#8592;</button>
+  <button id="btnBack" class="icon-btn" aria-label="Voltar"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 18l-6-6 6-6"/></svg></button>
   <div class="topbar-text">
     <span id="topbarKicker" class="kicker"></span>
     <h1 id="topbarTitle"></h1>
@@ -24,9 +24,9 @@
 <main id="app" aria-live="polite"></main>
 
 <nav id="tabbar" aria-label="Navegação principal">
-  <a href="#/aulas"     data-tab="aulas"     class="tab"><span class="tab-ico">&#9707;</span><span>Aulas</span></a>
-  <a href="#/sessao"    data-tab="sessao"    class="tab"><span class="tab-ico">&#9634;</span><span>Sessão</span></a>
-  <a href="#/historico" data-tab="historico" class="tab"><span class="tab-ico">&#8635;</span><span>Histórico</span></a>
+  <a href="#/aulas"     data-tab="aulas"     class="tab"><span class="tab-ico"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 4.5h6a4 4 0 0 1 4 4V20a3 3 0 0 0-3-3H2z"/><path d="M22 4.5h-6a4 4 0 0 0-4 4V20a3 3 0 0 1 3-3h7z"/></svg></span><span>Aulas</span></a>
+  <a href="#/sessao"    data-tab="sessao"    class="tab"><span class="tab-ico"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 11h3M13 11h4M7 15h6M16 15h1"/></svg></span><span>Sessão</span></a>
+  <a href="#/historico" data-tab="historico" class="tab"><span class="tab-ico"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M12 7.5V12l3.5 2"/></svg></span><span>Histórico</span></a>
 </nav>
 
 <div id="toast" role="status" aria-live="polite"></div>
