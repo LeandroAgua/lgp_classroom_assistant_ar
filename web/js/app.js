@@ -618,6 +618,8 @@ async function ecraPreparar(id) {
       </div>`;
     $("#btnCancelar").onclick = () => ecraPreparar(a.id);
     $("#btnConfirmar").onclick = () => {
+      // Se a legendagem desta aula ainda estiver a correr, pára antes de apagar.
+      if (motor && store.sessoes().some(x => x.id === motor.sid && x.aulaId === a.id)) motor.parar();
       const r = store.removerAula(a.id);
       location.hash = "#/aulas";
       toast(r ? `«${r.aula.titulo}» removida.` : "Aula já não existia.");
@@ -764,7 +766,158 @@ function ecraExtracao(id) {
   };
 }
 
-/* ───────────────── E04 · sessão ao vivo ───────────────── */
+/* ───────────────── preferências da legenda ─────────────────
+   Tamanho da letra e tema. Quem lê legendas durante uma hora tem de poder
+   escolher o tamanho; e o tema da app não tem de ser o do sistema (numa sala
+   escura o escuro cansa menos, ao sol o claro lê-se melhor). Guardado na
+   configuração, aplicado ao arrancar e sempre que muda. */
+
+const TAMANHOS_LEGENDA = [
+  { id: "normal", nome: "Normal", px: 19 },
+  { id: "grande", nome: "Grande", px: 23 },
+  { id: "muito", nome: "Muito grande", px: 28 },
+  { id: "enorme", nome: "Enorme", px: 34 }
+];
+const TEMAS = [
+  { id: "auto", nome: "Automático" },
+  { id: "claro", nome: "Claro" },
+  { id: "escuro", nome: "Escuro" }
+];
+
+function aplicarPreferencias() {
+  const c = store.config();
+  const tam = TAMANHOS_LEGENDA.find(t => t.id === c.tamLegenda) || TAMANHOS_LEGENDA[0];
+  document.documentElement.style.setProperty("--legenda-tam", tam.px + "px");
+  if (c.tema === "claro") document.documentElement.dataset.theme = "light";
+  else if (c.tema === "escuro") document.documentElement.dataset.theme = "dark";
+  else delete document.documentElement.dataset.theme;
+}
+
+/* Os controlos, desenhados dentro de `raiz`. Partilhados entre a folha de
+   ajustes da sessão e o ecrã de definições, para não haver duas versões. */
+function controlosLegenda(raiz) {
+  function pintar() {
+    const c = store.config();
+    const tamAtual = c.tamLegenda || "normal", temaAtual = c.tema || "auto";
+    raiz.innerHTML = `
+      <div class="field">
+        <span class="field-titulo" id="lblTam">Tamanho da letra da legenda</span>
+        <div class="segmentos" role="group" aria-labelledby="lblTam">
+          ${TAMANHOS_LEGENDA.map(t => `
+            <button type="button" data-tam="${t.id}" aria-pressed="${t.id === tamAtual}">
+              <span style="font-size:${Math.round(t.px * 0.75)}px" aria-hidden="true">A</span>
+              <small>${t.nome}</small>
+            </button>`).join("")}
+        </div>
+        <div class="previa-legenda" aria-hidden="true">Assim fica a legenda da aula.</div>
+      </div>
+      <div class="field">
+        <span class="field-titulo" id="lblTema">Tema</span>
+        <div class="segmentos" role="group" aria-labelledby="lblTema">
+          ${TEMAS.map(t => `
+            <button type="button" data-tema="${t.id}" aria-pressed="${t.id === temaAtual}"><small>${t.nome}</small></button>`).join("")}
+        </div>
+        <span class="muted small">Automático segue o tema do telemóvel.</span>
+      </div>`;
+    $$("[data-tam]", raiz).forEach(b => b.onclick = () => {
+      store.guardarConfig({ tamLegenda: b.dataset.tam });
+      aplicarPreferencias(); pintar();
+      $(`[data-tam="${b.dataset.tam}"]`, raiz)?.focus();
+    });
+    $$("[data-tema]", raiz).forEach(b => b.onclick = () => {
+      store.guardarConfig({ tema: b.dataset.tema });
+      aplicarPreferencias(); pintar();
+      $(`[data-tema="${b.dataset.tema}"]`, raiz)?.focus();
+    });
+  }
+  pintar();
+}
+
+/* Folha simples (fundo escuro + painel que sobe de baixo). Fecha com Esc, com
+   um toque fora, ou com `fechar()` devolvido. */
+function abrirFolha(html, { rotulo = "" } = {}) {
+  const back = document.createElement("div");
+  back.className = "sheet-back";
+  back.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${escapar(rotulo)}"><div class="sheet-grip"></div>${html}</div>`;
+  document.body.appendChild(back);
+  const fechar = () => { back.remove(); document.removeEventListener("keydown", tecla); };
+  const tecla = e => { if (e.key === "Escape") fechar(); };
+  document.addEventListener("keydown", tecla);
+  back.onclick = e => { if (e.target === back) fechar(); };
+  return { back, fechar };
+}
+
+/* ───────────────── motor da legendagem ─────────────────
+   O reconhecimento vivia dentro do ecrã da sessão e morria com ele: abrir as
+   aulas, o histórico ou as definições a meio da aula desligava a legenda, e o
+   que o professor dissesse entretanto perdia-se. Agora o motor existe enquanto
+   a sessão estiver aberta, seja qual for o ecrã; o ecrã só se liga a ele para
+   mostrar. Pára ao terminar a sessão (ou se a sessão desaparecer). */
+
+let motor = null;
+
+function motorAtivo() { return motor && !motor.emPausa ? motor : null; }
+
+function assinalarAoVivo() {
+  const tab = $('.tab[data-tab="sessao"]');
+  if (tab) tab.classList.toggle("ao-vivo", !!motorAtivo());
+}
+
+function obterMotor(sid, simular) {
+  if (motor && motor.sid === sid) return motor;
+  if (motor) motor.parar();
+
+  const m = {
+    sid, simular, emPausa: false, iniciado: false,
+    simTimer: null, simIdx: 0, estado: null, erro: null, ui: null
+  };
+
+  m.acrescentar = (texto, confianca) => {
+    const s = store.sessao(m.sid);
+    if (!s || s.fim) { m.parar(); return; }          // a sessão foi terminada ou apagada
+    if (!texto) return;
+    s.linhas.push({ t: Date.now(), texto, confianca });
+    store.guardarSessao(s);
+    m.ui && m.ui.novaLinha();
+  };
+
+  m.asr = criarASR({
+    lingua: "pt-PT",
+    onParcial: (t) => m.ui && m.ui.parcial(t),
+    onFinal: ({ texto, confianca }) => { m.ui && m.ui.parcial(null); m.acrescentar(texto, confianca); },
+    onEstado: (e) => { m.estado = e; if (e === "a-ouvir") m.erro = null; m.ui && m.ui.estado(e); },
+    onErro: (e) => { m.erro = e.message; m.ui && m.ui.erro(e.message); }
+  });
+
+  m.arrancar = () => {
+    m.iniciado = true;
+    if (m.simular) {
+      m.simTimer = setInterval(() => {
+        m.acrescentar(GUIAO_SIMULACAO[m.simIdx % GUIAO_SIMULACAO.length], 0.86 + Math.random() * 0.12);
+        m.simIdx++;
+      }, 3200);
+    } else if (asrDisponivel) m.asr.iniciar();
+    assinalarAoVivo();
+  };
+  m.pausar = () => {
+    m.emPausa = true;
+    if (m.simTimer) { clearInterval(m.simTimer); m.simTimer = null; } else m.asr.parar();
+    assinalarAoVivo();
+  };
+  m.retomar = () => { m.emPausa = false; m.arrancar(); };
+  m.parar = () => {
+    if (m.simTimer) clearInterval(m.simTimer);
+    try { m.asr.parar(); } catch {}
+    m.ui = null;
+    if (motor === m) motor = null;
+    assinalarAoVivo();
+  };
+
+  motor = m;
+  return m;
+}
+
+/* ───────────────── E04 · sessão ───────────────── */
 
 function ecraSessao(sid) {
   const s = store.sessao(sid);
@@ -777,7 +930,10 @@ function ecraSessao(sid) {
   // A simulação é para demonstrar sem microfone, não para um aluno a sério:
   // fica presa ao modo de teste, mesmo que tenha ficado ligada na configuração.
   const simular = modoDev() && !!store.config().simulacao;
+  const m = obterMotor(s.id, simular);
 
+  // O nome da aula já está no topo: a linha por baixo da barra de estado
+  // repetia-o tal e qual, e deixou de existir.
   topo({
     kicker: `${a?.uc || ""} · Aula ${a?.numero || ""}`,
     titulo: a?.titulo || "Sessão",
@@ -789,11 +945,10 @@ function ecraSessao(sid) {
     <div class="screen">
       <div class="sess-status">
         <span class="pulse" id="pulso"></span>
-        <span id="estadoSess">${simular ? "Simulação · a legendar" : "A ligar…"}</span>
+        <span id="estadoSess">${m.simular ? "Simulação · a legendar" : "A ligar…"}</span>
         <span class="right" id="relogio">00:00</span>
       </div>
-      <div class="sess-sub">${escapar(a?.uc || "")} · ${escapar(a?.titulo || "")}</div>
-      ${simular ? "" : `
+      ${m.simular ? "" : `
       <!-- Medidor de entrada: separa «o microfone não capta» de «o
            reconhecedor não devolve nada», que são problemas diferentes e
            davam exatamente o mesmo ecrã parado. -->
@@ -802,12 +957,13 @@ function ecraSessao(sid) {
         <span class="muted small" id="nivelTxt">a medir o microfone…</span>
       </div>`}
       <div id="avisoAsr"></div>
-      ${simular ? `<div class="notice warn" style="margin:0">Modo de simulação — legendas de exemplo, sem áudio nem vídeo reais.</div>` : ""}
+      ${m.simular ? `<div class="notice warn" style="margin:0">Modo de simulação — legendas de exemplo, sem áudio nem vídeo reais.</div>` : ""}
       ${a?.glossario ? "" : `<div class="notice warn" style="margin:0"><strong>Aula sem glossário</strong>Os termos técnicos não são contextualizados.</div>`}
       <div id="legenda"></div>
       <div id="parcial" class="linha parcial" hidden><span class="t"></span><span class="txt"></span></div>
       <div style="height:90px"></div>
     </div>
+    <button class="novas-legendas" id="btnNovas" hidden>&#8595; Novas legendas</button>
     <div class="sess-actions">
       <button class="act" id="btnPausar"><span class="ico">&#10073;&#10073;</span><span>Pausar</span></button>
       <button class="act fab" id="btnPerguntar"><span class="ico">&#9995;</span><span>Fazer uma<br>pergunta</span></button>
@@ -815,8 +971,20 @@ function ecraSessao(sid) {
     </div>`);
 
   const elLegenda = $("#legenda"), elParcial = $("#parcial"), elEstado = $("#estadoSess");
+  const btnNovas = $("#btnNovas");
 
-  function pintar() {
+  /* Seguir a legenda só quando o aluno já está no fim. Se subiu para reler o
+     que perdeu, fica onde está — puxá-lo de volta a cada frase nova tornava
+     impossível reler, que é exatamente o que um aluno surdo precisa de poder
+     fazer. Em troca aparece «Novas legendas», que o leva ao fim num toque. */
+  const noFim = () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160;
+  const irParaFim = (suave = false) => {
+    const reduzido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: suave && !reduzido ? "smooth" : "auto" });
+    btnNovas.hidden = true;
+  };
+
+  function pintar({ seguir = noFim() } = {}) {
     /* Duas incertezas diferentes, e só esta pertence à legenda: a confiança
        com que o reconhecedor ouviu este segmento. É o que diz ao aluno onde
        não deve confiar no que está a ler. */
@@ -831,9 +999,13 @@ function ecraSessao(sid) {
           incerta ? `<i class="marca-incerta" aria-label="frase mal ouvida">${Math.round(l.confianca * 100)}%</i>` : ""}</span>
       </div>`;
     }).join("");
-    window.scrollTo(0, document.body.scrollHeight);
+    if (seguir) irParaFim(); else btnNovas.hidden = false;
   }
-  pintar();
+  pintar({ seguir: true });
+
+  const aoRolar = () => { if (!btnNovas.hidden && noFim()) btnNovas.hidden = true; };
+  window.addEventListener("scroll", aoRolar, { passive: true });
+  btnNovas.onclick = () => irParaFim(true);
 
   const relogio = setInterval(tick, 1000); tick();
   function tick() {
@@ -841,41 +1013,6 @@ function ecraSessao(sid) {
     if (!el) return;
     const d = Math.floor((Date.now() - s.inicio) / 1000);
     el.textContent = `${String(Math.floor(d / 60)).padStart(2, "0")}:${String(d % 60).padStart(2, "0")}`;
-  }
-
-  function acrescentar(texto, confianca) {
-    if (!texto) return;
-    s.linhas.push({ t: Date.now(), texto, confianca });
-    store.guardarSessao(s);
-    pintar();
-  }
-
-  /* --- fontes: microfone real ou simulação --- */
-  let simTimer = null, simIdx = 0, emPausa = false;
-
-  const asr = criarASR({
-    lingua: "pt-PT",
-    onParcial: (t) => { elParcial.hidden = false; $(".txt", elParcial).textContent = t; },
-    onFinal: ({ texto, confianca }) => { elParcial.hidden = true; acrescentar(texto, confianca); },
-    onEstado: (e) => {
-      if (simular || emPausa) return;
-      // Arrancou mesmo: tirar o aviso de uma falha anterior, senão fica no
-      // ecrã a contradizer as legendas que já estão a aparecer.
-      if (e === "a-ouvir") { const cx = $("#avisoAsr"); if (cx) cx.innerHTML = ""; }
-      elEstado.textContent = ({
-        "a-ouvir": "A legendar", "a-retomar": "A retomar…",
-        "sem-permissao": "Microfone recusado", "parado": "Em pausa"
-      })[e] || e;
-    },
-    onErro: (e) => mostrarErroAsr(e.message)
-  });
-
-  function arrancarSimulacao() {
-    const guiao = GUIAO_SIMULACAO;
-    simTimer = setInterval(() => {
-      acrescentar(guiao[simIdx % guiao.length], 0.86 + Math.random() * 0.12);
-      simIdx++;
-    }, 3200);
   }
 
   /* Os erros do reconhecedor estavam a ser deitados fora: só o "network" dava
@@ -895,9 +1032,34 @@ function ecraSessao(sid) {
   function mostrarErroAsr(codigo) {
     const cx = $("#avisoAsr");
     if (!cx) return;
+    if (!codigo) { cx.innerHTML = ""; return; }
     const [titulo, corpo] = ERROS_ASR[codigo] || ["O reconhecimento falhou", `Código devolvido pelo browser: ${codigo}.`];
     cx.innerHTML = `<div class="notice danger" style="margin:0"><strong>${escapar(titulo)}</strong>${escapar(corpo)}</div>`;
   }
+
+  const ESTADOS = {
+    "a-ouvir": "A legendar", "a-retomar": "A retomar…",
+    "sem-permissao": "Microfone recusado", "parado": "Em pausa"
+  };
+  function mostrarEstado() {
+    if (m.emPausa) elEstado.textContent = "Em pausa";
+    else if (m.simular) elEstado.textContent = "Simulação · a legendar";
+    else if (m.estado) elEstado.textContent = ESTADOS[m.estado] || m.estado;
+    $("#pulso").classList.toggle("parado", m.emPausa);
+  }
+
+  // O ecrã liga-se ao motor enquanto estiver à vista.
+  m.ui = {
+    novaLinha: () => pintar(),
+    parcial: (t) => {
+      if (t == null) { elParcial.hidden = true; return; }
+      const seguir = noFim();
+      elParcial.hidden = false; $(".txt", elParcial).textContent = t;
+      if (seguir) irParaFim();
+    },
+    estado: () => { if (!m.simular && !m.emPausa && m.estado === "a-ouvir") mostrarErroAsr(null); mostrarEstado(); },
+    erro: (codigo) => mostrarErroAsr(codigo)
+  };
 
   /* Mede o sinal do microfone, em paralelo com o reconhecedor. Sem isto,
      "não capta som" e "capta mas não reconhece" davam o mesmo ecrã, e são
@@ -943,29 +1105,28 @@ function ecraSessao(sid) {
     }
   }
 
-  if (simular) arrancarSimulacao();
-  else if (asrDisponivel) { asr.iniciar(); medirMicrofone(); }
-  else {
+  // Arranca só da primeira vez; ao voltar a este ecrã o motor já está a correr.
+  if (!m.simular && !asrDisponivel) {
     elEstado.textContent = "Sem reconhecimento de fala";
     mostrarErroAsr("sem-suporte");
+  } else {
+    if (!m.iniciado) m.arrancar();
+    if (!m.simular && !m.emPausa) medirMicrofone();
+    if (m.erro) mostrarErroAsr(m.erro);
   }
 
-  $("#btnPausar").onclick = () => {
-    emPausa = !emPausa;
+  function pintarPausa() {
     const b = $("#btnPausar");
-    if (emPausa) {
-      if (simTimer) { clearInterval(simTimer); simTimer = null; } else asr.parar();
-      elEstado.textContent = "Em pausa";
-      $("#pulso").classList.add("parado");
-      b.querySelector("span:last-child").textContent = "Retomar";
-      b.querySelector(".ico").innerHTML = "&#9654;";
-    } else {
-      if (simular) arrancarSimulacao(); else asr.iniciar();
-      elEstado.textContent = simular ? "Simulação · a legendar" : "A legendar";
-      $("#pulso").classList.remove("parado");
-      b.querySelector("span:last-child").textContent = "Pausar";
-      b.querySelector(".ico").innerHTML = "&#10073;&#10073;";
-    }
+    b.querySelector("span:last-child").textContent = m.emPausa ? "Retomar" : "Pausar";
+    b.querySelector(".ico").innerHTML = m.emPausa ? "&#9654;" : "&#10073;&#10073;";
+    mostrarEstado();
+  }
+  pintarPausa();
+
+  $("#btnPausar").onclick = () => {
+    if (m.emPausa) { m.retomar(); if (!m.simular) medirMicrofone(); }
+    else { m.pausar(); if (pararNivel) pararNivel(); }
+    pintarPausa();
   };
 
   elLegenda.addEventListener("click", (ev) => {
@@ -973,15 +1134,50 @@ function ecraSessao(sid) {
     if (el) abrirTermo(el.dataset.termo, s, a);
   });
 
-  $("#btnAjustes").onclick = () => location.hash = "#/config";
-  $("#btnPerguntar").onclick = () => abrirPergunta(s);
-  $("#btnTerminar").onclick = () => {
-    s.fim = Date.now();
-    store.guardarSessao(s);
-    location.hash = `#/resumo/${s.id}`;
+  /* Ajustes da legenda: dentro da sessão, numa folha. Antes levavam às
+     definições da IAG, que não tinham nenhum ajuste da legenda — e sair da
+     sessão desligava-a. */
+  $("#btnAjustes").onclick = () => {
+    const { back, fechar } = abrirFolha(`
+      <h3>Ajustes da legenda</h3>
+      <div class="stack" id="ctlLegenda" style="margin-top:12px"></div>
+      <button class="btn sec" id="fecharAjustes" style="margin-top:18px">Fechar</button>`, { rotulo: "Ajustes da legenda" });
+    controlosLegenda($("#ctlLegenda", back));
+    $("#fecharAjustes", back).onclick = fechar;
+    $("[aria-pressed='true']", back)?.focus();
   };
 
-  limpezaEcra = () => { asr.parar(); clearInterval(relogio); if (simTimer) clearInterval(simTimer); if (pararNivel) pararNivel(); };
+  $("#btnPerguntar").onclick = () => abrirPergunta(s);
+
+  /* Terminar pede confirmação. Uma aula dá-se uma vez: um toque sem querer a
+     meio da aula acabava com a sessão sem volta. A opção segura (continuar)
+     é a que fica destacada e com o foco. */
+  $("#btnTerminar").onclick = () => {
+    const { back, fechar } = abrirFolha(`
+      <h3>Terminar a aula?</h3>
+      <p class="corpo" style="margin-top:6px">A legendagem pára e passas ao resumo. Depois de terminar não dá para retomar esta aula.</p>
+      <div class="stack" style="margin-top:16px">
+        <button class="btn" id="continuarAula">Continuar a aula</button>
+        <button class="btn ghost danger" id="confirmarTerminar">Terminar a aula</button>
+      </div>`, { rotulo: "Terminar a aula?" });
+    $("#continuarAula", back).onclick = fechar;
+    $("#continuarAula", back).focus();
+    $("#confirmarTerminar", back).onclick = () => {
+      fechar();
+      m.parar();
+      s.fim = Date.now();
+      store.guardarSessao(s);
+      location.hash = `#/resumo/${s.id}`;
+    };
+  };
+
+  // Sair deste ecrã já não pára a legendagem: só desliga a vista do motor.
+  limpezaEcra = () => {
+    if (motor === m) m.ui = null;
+    window.removeEventListener("scroll", aoRolar);
+    clearInterval(relogio);
+    if (pararNivel) pararNivel();
+  };
 }
 
 /* --- folha de explicação do termo (estado do E04) --- */
@@ -1832,11 +2028,16 @@ function ecraImportar() {
 /* ───────────────── definições ───────────────── */
 
 function ecraConfig() {
-  topo({ kicker: "Definições", titulo: "IAG e privacidade", voltar: () => history.back() });
+  topo({ kicker: "Definições", titulo: "Legenda, IAG e privacidade", voltar: () => history.back() });
   const c = store.config();
 
   render(`
     <div class="screen">
+      <section class="card stack" aria-labelledby="tituloLegenda">
+        <h3 id="tituloLegenda">Legenda</h3>
+        <div class="stack" id="ctlLegenda"></div>
+      </section>
+
       <div class="notice info">
         <strong>A app funciona sem chave</strong>
         Sem IAG, o glossário usa uma heurística local e o resumo fica pobre. A legendagem e a marcação de termos funcionam sempre.
@@ -1888,6 +2089,8 @@ function ecraConfig() {
         <span id="diag"></span>
       </div>
     </div>`);
+
+  controlosLegenda($("#ctlLegenda"));
 
   // Diagnóstico de uma linha: responde ao que costuma estar errado quando
   // "não acontece nada" — contexto inseguro, sem rede, sem chave.
@@ -2081,5 +2284,6 @@ function encaminhar() {
 
 window.addEventListener("hashchange", encaminhar);
 window.addEventListener("beforeunload", () => { if (limpezaEcra) limpezaEcra(); });
+aplicarPreferencias();
 if (!location.hash) location.hash = "#/aulas";
 encaminhar();

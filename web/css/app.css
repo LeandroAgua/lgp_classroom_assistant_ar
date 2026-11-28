@@ -301,7 +301,7 @@ a.notice.info:hover{box-shadow:var(--shadow)}
 
 #legenda{
   display:flex; flex-direction:column; gap:12px;
-  font-size:19px; line-height:1.6; padding:6px 0 8px;
+  font-size:var(--legenda-tam,19px); line-height:1.6; padding:6px 0 8px;
 }
 .linha{display:flex; gap:12px; align-items:baseline}
 .linha .t{
@@ -724,7 +724,7 @@ input[type="range"]::-moz-range-thumb{
   /* A barra de ações já está dentro do #app: só precisa de deixar de se
      auto-centrar, senão flutua no meio do espaço que sobrou. */
   body.com-pergunta .sess-actions{ max-width:none; margin:14px 0 0; }
-  body.com-pergunta #legenda{ font-size:20px; }
+  body.com-pergunta #legenda{ font-size:max(var(--legenda-tam,19px), 20px); }
   /* A barra de separadores pára na borda do painel em vez de lhe passar por baixo. */
   body.com-pergunta #tabbar{ right:var(--pq-w); }
 
@@ -774,7 +774,7 @@ input[type="range"]::-moz-range-thumb{
 /* Na sessão há uma barra de ações por cima dos separadores: o selo sobe
    para não tapar o botão de pausa. */
 body:has(.sess-actions) #devChip{
-  bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom,0px) + 96px);
+  bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom,0px) + 152px);
 }
 @media (min-width:720px){
   body:has(.sess-actions) #devChip{ bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom,0px) + 12px); }
@@ -901,3 +901,48 @@ body:has(.sess-actions) #devChip{
 .explica-corpo .conf{margin-left:0}
 .explica-corpo code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px}
 @media (prefers-reduced-motion: reduce){ .explica summary::after{transition:none} }
+
+/* ───────────────── ajustes da legenda ───────────────── */
+.field-titulo{font-size:13px; font-weight:650; color:var(--ink-2)}
+.segmentos{
+  display:flex; gap:4px; padding:4px; border-radius:14px;
+  background:var(--navy-50); border:1px solid var(--navy-100);
+}
+.segmentos button{
+  flex:1; min-width:0; min-height:48px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+  border:0; border-radius:11px; background:transparent; color:var(--ink-2);
+  font-weight:650; cursor:pointer; transition:background .15s, color .15s;
+}
+.segmentos button small{font-size:11.5px; font-weight:650; line-height:1.15; text-align:center}
+.segmentos button span{line-height:1; font-weight:700}
+.segmentos button:hover{color:var(--navy)}
+.segmentos button[aria-pressed="true"]{background:var(--card); color:var(--navy); box-shadow:var(--shadow)}
+.previa-legenda{
+  margin-top:4px; padding:10px 14px; border-radius:var(--radius-sm);
+  background:var(--card-2); border:1px dashed var(--line-2);
+  font-size:var(--legenda-tam,19px); line-height:1.5; color:var(--ink);
+}
+
+/* «Novas legendas»: aparece quando o aluno subiu para reler e chegam frases
+   novas. Fica por cima da barra de ações, ao centro. */
+.novas-legendas{
+  position:fixed; left:50%; transform:translateX(-50%); z-index:36;
+  bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom,0px) + 96px);
+  border:0; border-radius:999px; padding:10px 18px; min-height:44px;
+  background:var(--grad); color:#fff; font-weight:650; font-size:14px; cursor:pointer;
+  box-shadow:var(--shadow-lg); animation:subir .22s ease-out both;
+}
+@media (min-width:720px){
+  .novas-legendas{ bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom,0px) + 104px); }
+}
+@media (prefers-reduced-motion: reduce){ .novas-legendas{animation:none} }
+
+/* Separador «Sessão» com legendagem a correr: um ponto vermelho, para quem
+   saiu do ecrã da sessão saber que a aula continua a ser legendada. */
+.tab.ao-vivo .tab-ico{position:relative}
+.tab.ao-vivo .tab-ico::after{
+  content:""; position:absolute; top:3px; right:12px;
+  width:9px; height:9px; border-radius:50%;
+  background:#E5484D; box-shadow:0 0 0 2px var(--card);
+}
