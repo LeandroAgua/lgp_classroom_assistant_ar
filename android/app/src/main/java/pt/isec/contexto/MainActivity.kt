@@ -16,7 +16,7 @@ import androidx.core.content.ContextCompat
 import androidx.webkit.WebViewAssetLoader
 
 /**
- * Invólucro WebView da app ConTexto.
+ * Invólucro WebView da app LGP Classroom Assistant.
  *
  * Duas decisões que não são detalhe:
  *

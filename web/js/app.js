@@ -2085,7 +2085,7 @@ function ecraConfig() {
       <button class="btn ghost" id="apagar">Apagar todos os dados locais</button>
 
       <div class="muted small" style="text-align:center;padding-top:4px">
-        ConTexto · versão <b>${VERSAO}</b><br>
+        LGP Classroom Assistant · versão <b>${VERSAO}</b><br>
         <span id="diag"></span>
       </div>
     </div>`);

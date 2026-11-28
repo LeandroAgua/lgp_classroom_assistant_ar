@@ -1,6 +1,6 @@
 {
-  "name": "ConTexto — LGP Classroom Assistant",
-  "short_name": "ConTexto",
+  "name": "LGP Classroom Assistant",
+  "short_name": "LGP Classroom",
   "description": "Legendagem da aula contextualizada pelo glossário dos materiais, consulta de termos técnicos e pergunta em LGP.",
   "start_url": "./index.html#/aulas",
   "scope": "./",

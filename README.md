@@ -1,4 +1,4 @@
-# ConTexto — LGP Classroom Assistant
+# LGP Classroom Assistant
 
 Assistente de sala de aula para estudantes surdos.
 
