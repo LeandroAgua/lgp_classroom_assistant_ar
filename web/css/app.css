@@ -259,7 +259,7 @@ a.notice.info:hover{box-shadow:var(--shadow)}
   width:34px; height:34px; border-radius:10px; flex:0 0 auto;
   background:var(--navy-50); color:var(--navy); font-size:17px; line-height:1;
 }
-.choice b{display:block; font-size:15px; font-weight:650}
+.choice b{display:block; font-size:15px; font-weight:650; color:var(--ink)}
 .choice span{display:block; color:var(--mute); font-size:13px; margin-top:2px}
 .choice .pill{
   margin-left:auto; flex:0 0 auto; align-self:center;

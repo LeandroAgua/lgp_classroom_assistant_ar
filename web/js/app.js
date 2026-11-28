@@ -135,13 +135,13 @@ function ecraAulas() {
         </button>`).join("") : `
         <div class="empty">
           <div class="big">${ICONE.aulas}</div>
-          <p>Ainda não tens aulas.<br>Escolhe a aula a que vais assistir.</p>
+          <p>Ainda não tens aulas.<br>Cria a aula a que vais assistir, ou escolhe uma já preparada.</p>
         </div>`}
 
       ${/* Sempre visível: é por aqui que o aluno escolhe a aula a que vai
             assistir, de entre as que estão preparadas. Secundário quando já
             há aulas na lista, porque aí a ação principal é abrir uma. */
-        `<button class="btn ${aulas.length ? "sec" : ""}" id="btnNova">${modoDev() ? "+ Nova aula" : "+ Escolher aula"}</button>`}
+        `<button class="btn ${aulas.length ? "sec" : ""}" id="btnNova">+ Nova aula</button>`}
     </div>`);
 
   $$("[data-aula]").forEach(b => b.onclick = () => location.hash = `#/aula/${b.dataset.aula}`);
@@ -229,25 +229,43 @@ function seletorMateriais(raiz, aoMudar) {
 
 function ecraNova() {
   marcarTab("aulas");
-  topo({ kicker: "", titulo: modoDev() ? "Criar uma aula" : "Escolher a aula", voltar: "#/aulas" });
+  topo({ kicker: "", titulo: modoDev() ? "Criar uma aula" : "Nova aula", voltar: "#/aulas" });
 
   render(`
     <div class="screen">
       <p class="muted">${modoDev()
         ? "Cria uma aula e gera-lhe o glossário. Os materiais de exemplo são texto fixo, o que os torna úteis para comparar a extração com e sem IAG sobre exatamente a mesma entrada."
-        : "Escolhe a aula a que vais assistir. O glossário é extraído dos materiais dessa aula, e é ele que vai contextualizar as legendas."}</p>
+        : "Cria a aula a que vais assistir a partir dos materiais do docente, ou escolhe uma já preparada. O glossário é extraído desses materiais, e é ele que vai contextualizar as legendas."}</p>
+
+      <!-- Criar vem primeiro e já aberto: é o caminho normal, com os materiais
+           da aula a que se vai assistir. As aulas preparadas ficam a seguir,
+           como atalho. -->
+      <section class="card stack" aria-labelledby="tituloCriar">
+        <h3 id="tituloCriar">${modoDev() ? "Criar de raiz" : "Criar uma aula"}</h3>
+        <div class="field"><label for="nUC">Unidade curricular</label><input id="nUC" placeholder="Sistemas Operativos"></div>
+        <div class="field"><label for="nTitulo">Título da aula</label><input id="nTitulo" placeholder="Escalonamento de processos"></div>
+        <div class="field"><label for="nDocente">Docente</label><input id="nDocente" placeholder="Nome do docente"></div>
+        <div class="field">
+          <label>Materiais da aula</label>
+          <div id="materiais"></div>
+          <span class="muted small">Cada página de um PDF conta como um slide, e é assim que a app sabe de que slide veio cada termo.</span>
+        </div>
+        <button class="btn" id="btnCriar" disabled>Criar e extrair</button>
+      </section>
+
+      <div id="estado"></div>
 
       <!-- As aulas preparadas aparecem a todos. Escondê-las do aluno obrigava-o
            a colar o texto dos slides à mão antes de poder assistir à aula, o
            que é trabalho de quem prepara, não de quem assiste. O que fica só
            no modo de teste são as contagens de caracteres e termos esperados,
            que servem para medir a extração e nada dizem ao aluno. -->
-      <div class="card">
-        <b>${modoDev() ? "Material de exemplo" : "Aulas preparadas"}</b>
+      <section class="card" aria-labelledby="tituloPreparadas">
+        <h3 id="tituloPreparadas">${modoDev() ? "Ou usar material de exemplo" : "Ou escolhe uma aula preparada"}</h3>
         <div class="stack" style="margin-top:12px">
           ${AMOSTRAS.map(a => `
             <button class="choice" data-amostra="${a.id}">
-              <span class="ic">&#9634;</span>
+              <span class="ic">${ICONE.aulas}</span>
               <span class="grow">
                 <b>${escapar(a.uc)} · ${escapar(a.titulo)}</b>
                 <span>${modoDev()
@@ -256,24 +274,7 @@ function ecraNova() {
               </span>
             </button>`).join("")}
         </div>
-      </div>
-
-      <details class="card">
-        <summary style="cursor:pointer;font-weight:600">${modoDev() ? "Ou criar de raiz" : "Ou criar outra aula"}</summary>
-        <div class="stack" style="margin-top:14px">
-          <div class="field"><label for="nUC">Unidade curricular</label><input id="nUC" placeholder="Sistemas Operativos"></div>
-          <div class="field"><label for="nTitulo">Título da aula</label><input id="nTitulo" placeholder="Escalonamento de processos"></div>
-          <div class="field"><label for="nDocente">Docente</label><input id="nDocente" placeholder="Nome do docente"></div>
-          <div class="field">
-            <label>Materiais da aula</label>
-            <div id="materiais"></div>
-            <span class="muted small">Cada página de um PDF conta como um slide, e é assim que a app sabe de que slide veio cada termo.</span>
-          </div>
-          <button class="btn" id="btnCriar" disabled>Criar e extrair</button>
-        </div>
-      </details>
-
-      <div id="estado"></div>
+      </section>
     </div>`);
 
   $$("[data-amostra]").forEach(b => b.onclick = () => {
